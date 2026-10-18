@@ -1,0 +1,73 @@
+From b8a82ca3ab318aee9cd7d5be3488a03b852ade66 Mon Sep 17 00:00:00 2001
+From: aegnux-contributor <contributor@example.invalid>
+Date: Sun, 18 Oct 2026 04:51:52 +0300
+Subject: [PATCH 11/16] dzn: honor VK_EXT_depth_clip_enable and skip unhandled
+ dynamic states
+
+Use VkPipelineRasterizationDepthClipStateCreateInfoEXT.depthClipEnable when the
+application chains it, and advertise VK_EXT_depth_clip_enable. Dynamic states that
+dzn does not implement are now ignored instead of reaching unreachable().
+LIMITATION: VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE is ignored and the static
+strides are used.
+---
+ src/microsoft/vulkan/dzn_device.c   |  1 +
+ src/microsoft/vulkan/dzn_pipeline.c | 17 ++++++++++++++---
+ 2 files changed, 15 insertions(+), 3 deletions(-)
+
+diff --git a/src/microsoft/vulkan/dzn_device.c b/src/microsoft/vulkan/dzn_device.c
+index e505902..c3e2d7f 100644
+--- a/src/microsoft/vulkan/dzn_device.c
++++ b/src/microsoft/vulkan/dzn_device.c
+@@ -114,6 +114,7 @@ dzn_physical_device_get_extensions(struct dzn_physical_device *pdev)
+       .KHR_driver_properties                 = true,
+       .KHR_dynamic_rendering                 = true,
+       .KHR_external_memory                   = true,
++      .EXT_depth_clip_enable                 = true,
+       .KHR_external_semaphore                = true,
+ #ifdef _WIN32
+       .KHR_external_memory_win32             = true,
+diff --git a/src/microsoft/vulkan/dzn_pipeline.c b/src/microsoft/vulkan/dzn_pipeline.c
+index cf2b1ee..1503c15 100644
+--- a/src/microsoft/vulkan/dzn_pipeline.c
++++ b/src/microsoft/vulkan/dzn_pipeline.c
+@@ -1354,7 +1354,9 @@ dzn_graphics_pipeline_translate_rast(struct dzn_device *device,
+       d3d12_gfx_pipeline_state_stream_new_desc(out, RASTERIZER2, D3D12_RASTERIZER_DESC2, desc);
+       pipeline->templates.desc_offsets.rast =
+          (uintptr_t)desc - (uintptr_t)out->pPipelineStateSubobjectStream;
+-      desc->DepthClipEnable = !in_rast->depthClampEnable;
++      const VkPipelineRasterizationDepthClipStateCreateInfoEXT *dcs =
++         vk_find_struct_const(in_rast->pNext, PIPELINE_RASTERIZATION_DEPTH_CLIP_STATE_CREATE_INFO_EXT);
++      desc->DepthClipEnable = dcs ? dcs->depthClipEnable : !in_rast->depthClampEnable;
+       desc->FillMode = translate_polygon_mode(in_rast->polygonMode);
+       desc->CullMode = translate_cull_mode(in_rast->cullMode);
+       desc->FrontCounterClockwise =
+@@ -1373,7 +1375,9 @@ dzn_graphics_pipeline_translate_rast(struct dzn_device *device,
+       d3d12_pipeline_state_stream_new_desc(out, MAX_GFX_PIPELINE_STATE_STREAM_SIZE, rast_type, D3D12_RASTERIZER_DESC, desc);
+       pipeline->templates.desc_offsets.rast =
+          (uintptr_t)desc - (uintptr_t)out->pPipelineStateSubobjectStream;
+-      desc->DepthClipEnable = !in_rast->depthClampEnable;
++      const VkPipelineRasterizationDepthClipStateCreateInfoEXT *dcs =
++         vk_find_struct_const(in_rast->pNext, PIPELINE_RASTERIZATION_DEPTH_CLIP_STATE_CREATE_INFO_EXT);
++      desc->DepthClipEnable = dcs ? dcs->depthClipEnable : !in_rast->depthClampEnable;
+       desc->FillMode = translate_polygon_mode(in_rast->polygonMode);
+       desc->CullMode = translate_cull_mode(in_rast->cullMode);
+       desc->FrontCounterClockwise =
+@@ -1946,7 +1950,14 @@ dzn_graphics_pipeline_create(struct dzn_device *device,
+          case VK_DYNAMIC_STATE_LINE_WIDTH:
+             /* Nothing to do since we just support lineWidth = 1. */
+             break;
+-         default: unreachable("Unsupported dynamic state");
++         case VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE:
++            /* Dynamic vertex strides are not implemented yet; the static
++             * strides from VkVertexInputBindingDescription are used. */
++            break;
++         default:
++            /* Unknown dynamic states are ignored. unreachable() here let the
++             * compiler emit an out-of-range jump table index. */
++            break;
+          }
+       }
+    }
+-- 
+2.43.0
+

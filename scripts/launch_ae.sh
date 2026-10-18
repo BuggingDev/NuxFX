@@ -1,0 +1,32 @@
+#!/bin/bash
+# Launches After Effects 2024 under Wine with the dzn ICD and the apiVersion layer.
+#
+#   launch_ae.sh [SECONDS]   stop AE after SECONDS (default 0: no limit)
+#
+# Logs go to $AEGNUX_LOG_DIR/ae_<timestamp>/ (out.log, err.log, rc). The directory
+# name is also written to $AEGNUX_LOG_DIR/LATEST.
+set -u
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+. "$HERE/common.sh"
+SECS=${1:-0}
+
+"$HERE/stop_ae.sh" > /dev/null 2>&1
+sleep 2
+"$HERE/clear_crash_state.sh" > /dev/null
+aegnux_env
+
+TS=$(date +%Y%m%d_%H%M%S)
+LOGD="$AEGNUX_LOG_DIR/ae_$TS"
+mkdir -p "$LOGD"
+echo "$LOGD" > "$AEGNUX_LOG_DIR/LATEST"
+cd "$AE_DIR"
+
+if [ "$SECS" -gt 0 ]; then
+    timeout -s TERM "$SECS" wine AfterFX.exe > "$LOGD/out.log" 2> "$LOGD/err.log" < /dev/null
+else
+    wine AfterFX.exe > "$LOGD/out.log" 2> "$LOGD/err.log" < /dev/null
+fi
+rc=$?
+echo "rc=$rc" > "$LOGD/rc"
+"$HERE/stop_ae.sh" > /dev/null 2>&1
+echo "log directory: $LOGD (rc=$rc; 124 means the time limit ended)"

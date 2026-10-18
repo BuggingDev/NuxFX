@@ -1,0 +1,7 @@
+build/
+*.orig
+*.rej
+*.pre_*
+__pycache__/
+*.so
+*.o

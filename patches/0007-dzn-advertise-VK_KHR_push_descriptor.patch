@@ -1,0 +1,233 @@
+From 23661c9c313f07b40c6e6ed86094ee986c89f013 Mon Sep 17 00:00:00 2001
+From: aegnux-contributor <contributor@example.invalid>
+Date: Sun, 18 Oct 2026 04:51:52 +0300
+Subject: [PATCH 07/16] dzn: advertise VK_KHR_push_descriptor
+
+Each vkCmdPushDescriptorSet call allocates a descriptor set from a
+command-buffer-owned pool. The pools are destroyed when the command buffer is
+reset or destroyed. maxPushDescriptors is 32. The GPUSniffer DirectX checks
+require the extension.
+---
+ src/microsoft/vulkan/dzn_cmd_buffer.c | 152 ++++++++++++++++++++++++++
+ src/microsoft/vulkan/dzn_device.c     |   2 +
+ src/microsoft/vulkan/dzn_private.h    |   3 +
+ 3 files changed, 157 insertions(+)
+
+diff --git a/src/microsoft/vulkan/dzn_cmd_buffer.c b/src/microsoft/vulkan/dzn_cmd_buffer.c
+index eef9a14..fa971f7 100644
+--- a/src/microsoft/vulkan/dzn_cmd_buffer.c
++++ b/src/microsoft/vulkan/dzn_cmd_buffer.c
+@@ -413,6 +413,9 @@ dzn_cmd_buffer_destroy(struct vk_command_buffer *cbuf)
+    dzn_descriptor_heap_pool_finish(&cmdbuf->sampler_pool);
+    dzn_descriptor_heap_pool_finish(&cmdbuf->rtvs.pool);
+    dzn_descriptor_heap_pool_finish(&cmdbuf->dsvs.pool);
++   util_dynarray_foreach(&cmdbuf->push_pools, VkDescriptorPool, pp)
++      dzn_DestroyDescriptorPool(vk_device_to_handle(cmdbuf->vk.base.device), *pp, NULL);
++   util_dynarray_fini(&cmdbuf->push_pools);
+    util_dynarray_fini(&cmdbuf->events.signal);
+    util_dynarray_fini(&cmdbuf->queries.reset);
+    util_dynarray_fini(&cmdbuf->queries.signal);
+@@ -474,6 +477,9 @@ dzn_cmd_buffer_reset(struct vk_command_buffer *cbuf, VkCommandBufferResetFlags f
+    }
+    cmdbuf->cur_upload_buf = NULL;
+ 
++   util_dynarray_foreach(&cmdbuf->push_pools, VkDescriptorPool, pp)
++      dzn_DestroyDescriptorPool(vk_device_to_handle(cmdbuf->vk.base.device), *pp, NULL);
++   util_dynarray_clear(&cmdbuf->push_pools);
+    util_dynarray_clear(&cmdbuf->events.signal);
+    util_dynarray_clear(&cmdbuf->queries.reset);
+    util_dynarray_clear(&cmdbuf->queries.signal);
+@@ -610,6 +616,7 @@ dzn_cmd_buffer_create(const VkCommandBufferAllocateInfo *info,
+    for (uint32_t bucket = 0; bucket < DZN_INTERNAL_BUF_BUCKET_COUNT; ++bucket)
+       list_inithead(&cmdbuf->internal_bufs[bucket]);
+    util_dynarray_init(&cmdbuf->events.signal, NULL);
++   util_dynarray_init(&cmdbuf->push_pools, NULL);
+    util_dynarray_init(&cmdbuf->queries.reset, NULL);
+    util_dynarray_init(&cmdbuf->queries.signal, NULL);
+    dzn_descriptor_heap_pool_init(&cmdbuf->rtvs.pool, device,
+@@ -6068,3 +6075,148 @@ dzn_CmdPushConstants2KHR(VkCommandBuffer commandBuffer,
+                         pPushConstantsInfo->size,
+                         pPushConstantsInfo->pValues);
+ }
++
++/* VK_KHR_push_descriptor. Each push allocates a fresh descriptor set from a
++ * command-buffer-owned pool, so recorded draws keep the descriptors they were
++ * recorded with. The pools are destroyed on command buffer reset or destroy. */
++#define DZN_PUSH_POOL_SET_COUNT 256
++#define DZN_PUSH_POOL_DESC_COUNT 1024
++
++static VkDescriptorPool
++dzn_cmd_buffer_create_push_pool(struct dzn_cmd_buffer *cmdbuf)
++{
++   static const VkDescriptorType types[] = {
++      VK_DESCRIPTOR_TYPE_SAMPLER,
++      VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
++      VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
++      VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
++      VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER,
++      VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER,
++      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
++      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
++      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
++      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,
++      VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT,
++   };
++   VkDescriptorPoolSize sizes[ARRAY_SIZE(types)];
++   for (uint32_t i = 0; i < ARRAY_SIZE(types); i++) {
++      sizes[i].type = types[i];
++      sizes[i].descriptorCount = DZN_PUSH_POOL_DESC_COUNT;
++   }
++   const VkDescriptorPoolCreateInfo info = {
++      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
++      .maxSets = DZN_PUSH_POOL_SET_COUNT,
++      .poolSizeCount = ARRAY_SIZE(types),
++      .pPoolSizes = sizes,
++   };
++
++   VkDescriptorPool pool = VK_NULL_HANDLE;
++   if (dzn_CreateDescriptorPool(vk_device_to_handle(cmdbuf->vk.base.device),
++                                &info, NULL, &pool) != VK_SUCCESS)
++      return VK_NULL_HANDLE;
++
++   util_dynarray_append(&cmdbuf->push_pools, VkDescriptorPool, pool);
++   return pool;
++}
++
++static VkDescriptorSet
++dzn_cmd_buffer_alloc_push_set(struct dzn_cmd_buffer *cmdbuf,
++                              VkDescriptorSetLayout layout)
++{
++   VkDevice dev = vk_device_to_handle(cmdbuf->vk.base.device);
++   VkDescriptorPool pool = VK_NULL_HANDLE;
++   if (cmdbuf->push_pools.size)
++      pool = *util_dynarray_top_ptr(&cmdbuf->push_pools, VkDescriptorPool);
++
++   for (int attempt = 0; attempt < 2; attempt++) {
++      if (!pool)
++         pool = dzn_cmd_buffer_create_push_pool(cmdbuf);
++      if (!pool)
++         return VK_NULL_HANDLE;
++
++      VkDescriptorSet set = VK_NULL_HANDLE;
++      const VkDescriptorSetAllocateInfo ai = {
++         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
++         .descriptorPool = pool,
++         .descriptorSetCount = 1,
++         .pSetLayouts = &layout,
++      };
++      if (dzn_AllocateDescriptorSets(dev, &ai, &set) == VK_SUCCESS)
++         return set;
++
++      /* The current pool is full; try a fresh one. */
++      pool = VK_NULL_HANDLE;
++   }
++   return VK_NULL_HANDLE;
++}
++
++static void
++dzn_cmd_buffer_push_descriptors(struct dzn_cmd_buffer *cmdbuf,
++                                VkPipelineBindPoint bindpoint,
++                                VkPipelineLayout layout,
++                                uint32_t set_idx,
++                                uint32_t write_count,
++                                const VkWriteDescriptorSet *writes,
++                                VkDescriptorUpdateTemplate templ,
++                                const void *data)
++{
++   VK_FROM_HANDLE(dzn_pipeline_layout, playout, layout);
++   if (set_idx >= MAX_SETS || !playout->vk.set_layouts[set_idx]) {
++      vk_command_buffer_set_error(&cmdbuf->vk, VK_ERROR_UNKNOWN);
++      return;
++   }
++
++   VkDevice dev = vk_device_to_handle(cmdbuf->vk.base.device);
++   VkDescriptorSetLayout set_layout =
++      vk_descriptor_set_layout_to_handle(playout->vk.set_layouts[set_idx]);
++   VkDescriptorSet set = dzn_cmd_buffer_alloc_push_set(cmdbuf, set_layout);
++   if (!set) {
++      vk_command_buffer_set_error(&cmdbuf->vk, VK_ERROR_OUT_OF_POOL_MEMORY);
++      return;
++   }
++
++   if (templ) {
++      dzn_UpdateDescriptorSetWithTemplate(dev, set, templ, data);
++   } else {
++      for (uint32_t i = 0; i < write_count; i++) {
++         VkWriteDescriptorSet w = writes[i];
++         w.dstSet = set;
++         dzn_UpdateDescriptorSets(dev, 1, &w, 0, NULL);
++      }
++   }
++
++   VK_FROM_HANDLE(dzn_descriptor_set, dset, set);
++   struct dzn_descriptor_state *desc_state =
++      &cmdbuf->state.bindpoint[bindpoint].desc_state;
++   desc_state->sets[set_idx].set = dset;
++   memset(desc_state->sets[set_idx].dynamic_offsets, 0,
++          sizeof(desc_state->sets[set_idx].dynamic_offsets));
++   cmdbuf->state.bindpoint[bindpoint].dirty |=
++      (DZN_CMD_BINDPOINT_DIRTY_DESC_SET0 << set_idx) |
++      DZN_CMD_BINDPOINT_DIRTY_DYNAMIC_BUFFERS;
++}
++
++VKAPI_ATTR void VKAPI_CALL
++dzn_CmdPushDescriptorSet2KHR(VkCommandBuffer commandBuffer,
++                             const VkPushDescriptorSetInfoKHR *pInfo)
++{
++   VK_FROM_HANDLE(dzn_cmd_buffer, cmdbuf, commandBuffer);
++   VkPipelineBindPoint bindpoint =
++      (pInfo->stageFlags & VK_SHADER_STAGE_COMPUTE_BIT) ?
++      VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS;
++
++   dzn_cmd_buffer_push_descriptors(cmdbuf, bindpoint, pInfo->layout, pInfo->set,
++                                   pInfo->descriptorWriteCount,
++                                   pInfo->pDescriptorWrites, VK_NULL_HANDLE, NULL);
++}
++
++VKAPI_ATTR void VKAPI_CALL
++dzn_CmdPushDescriptorSetWithTemplate2KHR(VkCommandBuffer commandBuffer,
++                                         const VkPushDescriptorSetWithTemplateInfoKHR *pInfo)
++{
++   VK_FROM_HANDLE(dzn_cmd_buffer, cmdbuf, commandBuffer);
++
++   dzn_cmd_buffer_push_descriptors(cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS,
++                                   pInfo->layout, pInfo->set, 0, NULL,
++                                   pInfo->descriptorUpdateTemplate, pInfo->pData);
++}
+diff --git a/src/microsoft/vulkan/dzn_device.c b/src/microsoft/vulkan/dzn_device.c
+index bb8f9ae..0c0ac16 100644
+--- a/src/microsoft/vulkan/dzn_device.c
++++ b/src/microsoft/vulkan/dzn_device.c
+@@ -155,6 +155,7 @@ dzn_physical_device_get_extensions(struct dzn_physical_device *pdev)
+ #endif
+       .EXT_scalar_block_layout               = true,
+       .EXT_separate_stencil_usage            = true,
++      .KHR_push_descriptor                   = true,
+       .EXT_shader_replicated_composites      = true,
+       .EXT_shader_subgroup_ballot            = true,
+       .EXT_shader_subgroup_vote              = true,
+@@ -839,6 +840,7 @@ dzn_physical_device_get_properties(const struct dzn_physical_device *pdev,
+       .maxUniformBufferRange = D3D12_REQ_CONSTANT_BUFFER_ELEMENT_COUNT * D3D12_STANDARD_VECTOR_SIZE * sizeof(float),
+       .maxStorageBufferRange = 1 << D3D12_REQ_BUFFER_RESOURCE_TEXEL_COUNT_2_TO_EXP,
+       .maxPushConstantsSize = 128,
++      .maxPushDescriptors = 32,
+       .maxMemoryAllocationCount = 4096,
+       .maxSamplerAllocationCount = 4000,
+       .bufferImageGranularity = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
+diff --git a/src/microsoft/vulkan/dzn_private.h b/src/microsoft/vulkan/dzn_private.h
+index e70b201..fd9db4d 100644
+--- a/src/microsoft/vulkan/dzn_private.h
++++ b/src/microsoft/vulkan/dzn_private.h
+@@ -681,6 +681,9 @@ struct dzn_cmd_buffer {
+    struct vk_command_buffer vk;
+    struct dzn_cmd_buffer_state state;
+ 
++   /* Descriptor pools backing VK_KHR_push_descriptor sets; destroyed on reset. */
++   struct util_dynarray push_pools;
++
+    struct {
+       struct hash_table *ht;
+       struct util_dynarray reset;
+-- 
+2.43.0
+

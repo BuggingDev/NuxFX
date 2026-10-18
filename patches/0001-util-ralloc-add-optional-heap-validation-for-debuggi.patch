@@ -1,0 +1,254 @@
+From 4b8ce198a156c8d1ea88d0233aefaa5aba4a2cc7 Mon Sep 17 00:00:00 2001
+From: aegnux-contributor <contributor@example.invalid>
+Date: Sun, 18 Oct 2026 04:51:52 +0300
+Subject: [PATCH 01/16] util/ralloc: add optional heap validation for debugging
+
+Add RALLOC_DEBUG_VALIDATE, default 0. When enabled, each block records the
+call stacks of its allocation and of its free. Freed blocks stay allocated
+(quarantined) instead of going back to malloc, so a double free, a use after
+free or a corrupted child list is reported on stderr with those stacks.
+
+This was the tool used to locate the dzn meta double free (see
+docs/technical-note.md). Release builds are not affected.
+---
+ src/util/ralloc.c | 151 ++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 151 insertions(+)
+
+diff --git a/src/util/ralloc.c b/src/util/ralloc.c
+index ba560c8..104f492 100644
+--- a/src/util/ralloc.c
++++ b/src/util/ralloc.c
+@@ -43,6 +43,25 @@
+ #define HEADER_ALIGN 8
+ #endif
+ 
++/* Optional heap validation for debugging ralloc misuse (double free, use
++ * after free, corrupted child lists). Off by default. When enabled, each block
++ * records the call stacks of its allocation and free, freed blocks are kept
++ * allocated (quarantined) so stale pointers stay detectable, and a violation
++ * is printed to stderr with the call stacks involved.
++ */
++#ifndef RALLOC_DEBUG_VALIDATE
++#define RALLOC_DEBUG_VALIDATE 0
++#endif
++
++#if RALLOC_DEBUG_VALIDATE
++#include <execinfo.h>
++#include <unistd.h>
++
++#define RDBG_LIVE 0x4c495645u
++#define RDBG_FREED 0x46524545u
++#define RDBG_NSITES 10
++#endif
++
+ /* Align the header's size so that ralloc() allocations will return with the
+  * same alignment as a libc malloc would have (8 on 32-bit GLIBC, 16 on
+  * 64-bit), avoiding performance penalities on x86 and alignment faults on
+@@ -58,6 +77,13 @@ struct ralloc_header
+    unsigned size;
+ #endif
+ 
++#if RALLOC_DEBUG_VALIDATE
++   unsigned rdbg_state;
++   unsigned rdbg_size;
++   void *rdbg_alloc[RDBG_NSITES];
++   void *rdbg_free[RDBG_NSITES];
++#endif
++
+    struct ralloc_header *parent;
+ 
+    /* The first child (head of a linked list) */
+@@ -75,12 +101,99 @@ typedef struct ralloc_header ralloc_header;
+ static void unlink_block(ralloc_header *info);
+ static void unsafe_free(ralloc_header *info);
+ 
++#if RALLOC_DEBUG_VALIDATE
++static unsigned rdbg_reports;
++
++static void
++rdbg_capture(void **sites)
++{
++   void *frames[RDBG_NSITES];
++   int n = backtrace(frames, RDBG_NSITES);
++
++   for (unsigned i = 0; i < RDBG_NSITES; i++)
++      sites[i] = (int)i < n ? frames[i] : NULL;
++}
++
++static void
++rdbg_print_sites(const char *label, void *const *sites)
++{
++   unsigned n = 0;
++   while (n < RDBG_NSITES && sites[n] != NULL)
++      n++;
++
++   fprintf(stderr, "  %s (%u frames):\n", label, n);
++   fflush(stderr);
++   if (n > 0)
++      backtrace_symbols_fd(sites, n, STDERR_FILENO);
++}
++
++static void
++rdbg_violation(const char *what, const ralloc_header *info)
++{
++   void *now[RDBG_NSITES];
++
++   if (rdbg_reports++ >= 200)
++      return;
++
++   rdbg_capture(now);
++   fprintf(stderr, "RALLOC-VIOLATION: %s block=%p state=0x%08x size=%u\n",
++           what, (const void *)info, info->rdbg_state, info->rdbg_size);
++   rdbg_print_sites("violation", now);
++   rdbg_print_sites("allocated", info->rdbg_alloc);
++   rdbg_print_sites("freed", info->rdbg_free);
++   fflush(stderr);
++}
++
++static void
++rdbg_check_live(const ralloc_header *info, const char *what)
++{
++   if (info->rdbg_state != RDBG_LIVE)
++      rdbg_violation(what, info);
++}
++
++/* Mark a block freed without returning its memory to malloc. */
++static void
++rdbg_retire(ralloc_header *info)
++{
++   info->rdbg_state = RDBG_FREED;
++   rdbg_capture(info->rdbg_free);
++   info->parent = NULL;
++   info->child = NULL;
++   info->prev = NULL;
++   info->next = NULL;
++}
++
++/* realloc() replacement that leaves the old block allocated. */
++static ralloc_header *
++rdbg_copy_block(ralloc_header *old, size_t size)
++{
++   ralloc_header *info =
++      malloc(align64(size + sizeof(ralloc_header), alignof(ralloc_header)));
++   if (info == NULL)
++      return NULL;
++
++   memcpy(info, old, sizeof(ralloc_header) + MIN2((size_t)old->rdbg_size, size));
++   info->rdbg_size = (unsigned)size;
++   return info;
++}
++
++static ralloc_header *
++header_of(const void *ptr)
++{
++   return (ralloc_header *) (((char *) ptr) - sizeof(ralloc_header));
++}
++#endif
++
++
+ static ralloc_header *
+ get_header(const void *ptr)
+ {
+    ralloc_header *info = (ralloc_header *) (((char *) ptr) -
+ 					    sizeof(ralloc_header));
+    assert(info->canary == CANARY);
++#if RALLOC_DEBUG_VALIDATE
++   rdbg_check_live(info, "use of a freed ralloc block");
++#endif
+    return info;
+ }
+ 
+@@ -143,6 +256,13 @@ ralloc_size(const void *ctx, size_t size)
+    info->size = size;
+ #endif
+ 
++#if RALLOC_DEBUG_VALIDATE
++   info->rdbg_state = RDBG_LIVE;
++   info->rdbg_size = (unsigned)size;
++   rdbg_capture(info->rdbg_alloc);
++   memset(info->rdbg_free, 0, sizeof(info->rdbg_free));
++#endif
++
+    return PTR_FROM_HEADER(info);
+ }
+ 
+@@ -164,8 +284,12 @@ resize(void *ptr, size_t size)
+    ralloc_header *child, *old, *info;
+ 
+    old = get_header(ptr);
++#if RALLOC_DEBUG_VALIDATE
++   info = rdbg_copy_block(old, size);
++#else
+    info = realloc(old, align64(size + sizeof(ralloc_header),
+                                alignof(ralloc_header)));
++#endif
+ 
+    if (info == NULL)
+       return NULL;
+@@ -186,6 +310,11 @@ resize(void *ptr, size_t size)
+    for (child = info->child; child != NULL; child = child->next)
+       child->parent = info;
+ 
++#if RALLOC_DEBUG_VALIDATE
++   if (info != old)
++      rdbg_retire(old);
++#endif
++
+    return PTR_FROM_HEADER(info);
+ }
+ 
+@@ -259,7 +388,15 @@ ralloc_free(void *ptr)
+    if (ptr == NULL)
+       return;
+ 
++#if RALLOC_DEBUG_VALIDATE
++   info = header_of(ptr);
++   if (info->rdbg_state != RDBG_LIVE) {
++      rdbg_violation("ralloc_free of a freed block (double free)", info);
++      return;
++   }
++#else
+    info = get_header(ptr);
++#endif
+    unlink_block(info);
+    unsafe_free(info);
+ }
+@@ -293,6 +430,10 @@ static void
+ unlink_block(ralloc_header *info)
+ {
+    /* Unlink from parent & siblings */
++#if RALLOC_DEBUG_VALIDATE
++   if (info->parent != NULL)
++      rdbg_check_live(info->parent, "child of a freed parent unlinked");
++#endif
+    if (info->parent != NULL) {
+       if (info->parent->child == info)
+ 	 info->parent->child = info->next;
+@@ -311,6 +452,12 @@ unlink_block(ralloc_header *info)
+ static void
+ unsafe_free(ralloc_header *info)
+ {
++#if RALLOC_DEBUG_VALIDATE
++   if (info->rdbg_state != RDBG_LIVE) {
++      rdbg_violation("freeing a block that is already freed", info);
++      return;
++   }
++#endif
+    /* Recursively free any children...don't waste time unlinking them. */
+    ralloc_header *temp;
+    while (info->child != NULL) {
+@@ -323,7 +470,11 @@ unsafe_free(ralloc_header *info)
+    if (info->destructor != NULL)
+       info->destructor(PTR_FROM_HEADER(info));
+ 
++#if RALLOC_DEBUG_VALIDATE
++   rdbg_retire(info);
++#else
+    free(info);
++#endif
+ }
+ 
+ void
+-- 
+2.43.0
+

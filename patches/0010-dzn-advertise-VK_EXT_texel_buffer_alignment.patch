@@ -1,0 +1,37 @@
+From 08dde045a1886ecb57b695d8698145d70919853f Mon Sep 17 00:00:00 2001
+From: aegnux-contributor <contributor@example.invalid>
+Date: Sun, 18 Oct 2026 04:51:52 +0300
+Subject: [PATCH 10/16] dzn: advertise VK_EXT_texel_buffer_alignment
+
+Report 16 byte offset alignment for uniform and storage texel buffers, with
+single texel alignment, as the GPUSniffer checks require.
+---
+ src/microsoft/vulkan/dzn_device.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/src/microsoft/vulkan/dzn_device.c b/src/microsoft/vulkan/dzn_device.c
+index 838cb5b..e505902 100644
+--- a/src/microsoft/vulkan/dzn_device.c
++++ b/src/microsoft/vulkan/dzn_device.c
+@@ -156,6 +156,7 @@ dzn_physical_device_get_extensions(struct dzn_physical_device *pdev)
+       .EXT_scalar_block_layout               = true,
+       .EXT_separate_stencil_usage            = true,
+       .EXT_transform_feedback                = true,
++      .EXT_texel_buffer_alignment            = true,
+       .KHR_push_descriptor                   = true,
+       .EXT_shader_replicated_composites      = true,
+       .EXT_shader_subgroup_ballot            = true,
+@@ -852,6 +853,10 @@ dzn_physical_device_get_properties(const struct dzn_physical_device *pdev,
+       .transformFeedbackStreamsLinesTriangles = false,
+       .transformFeedbackRasterizationStreamSelect = false,
+       .transformFeedbackDraw = true,
++      .storageTexelBufferOffsetAlignmentBytes = 16,
++      .storageTexelBufferOffsetSingleTexelAlignment = true,
++      .uniformTexelBufferOffsetAlignmentBytes = 16,
++      .uniformTexelBufferOffsetSingleTexelAlignment = true,
+       .maxMemoryAllocationCount = 4096,
+       .maxSamplerAllocationCount = 4000,
+       .bufferImageGranularity = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
+-- 
+2.43.0
+

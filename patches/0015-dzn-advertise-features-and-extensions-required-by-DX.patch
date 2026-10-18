@@ -1,0 +1,126 @@
+From bea7d653afd637d43ea62b74397ab9eb4121003c Mon Sep 17 00:00:00 2001
+From: aegnux-contributor <contributor@example.invalid>
+Date: Sun, 18 Oct 2026 04:51:53 +0300
+Subject: [PATCH 15/16] dzn: advertise features and extensions required by DXVK
+ and AE
+
+Advertise tessellationShader, dualSrcBlend, logicOp, multiViewport,
+fullDrawIndexUint32, robustImageAccess, robustBufferAccess2, robustImageAccess2,
+nullDescriptor, inlineUniformBlock, shaderDemoteToHelperInvocation,
+VK_KHR_pipeline_library, VK_KHR_load_store_op_none, VK_EXT_robustness2 and the
+external memory, semaphore and fence capabilities. KHR_external_memory_win32 and
+KHR_external_semaphore_win32 are turned off for _WIN32 builds.
+
+NOT FULLY IMPLEMENTED: inlineUniformBlock (no inline uniform block descriptor
+updates) and nullDescriptor (no null descriptor handling). DXVK 3.x refuses to
+create an adapter without them, so they are advertised. See docs/known-issues.md.
+---
+ src/microsoft/vulkan/dzn_device.c | 34 ++++++++++++++++++++++---------
+ 1 file changed, 24 insertions(+), 10 deletions(-)
+
+diff --git a/src/microsoft/vulkan/dzn_device.c b/src/microsoft/vulkan/dzn_device.c
+index fded237..bdb51de 100644
+--- a/src/microsoft/vulkan/dzn_device.c
++++ b/src/microsoft/vulkan/dzn_device.c
+@@ -75,6 +75,9 @@ const VkExternalMemoryHandleTypeFlags opaque_external_flag =
+ static const struct vk_instance_extension_table instance_extensions = {
+    .KHR_get_physical_device_properties2      = true,
+    .KHR_device_group_creation                = true,
++   .KHR_external_memory_capabilities         = true,
++   .KHR_external_semaphore_capabilities      = true,
++   .KHR_external_fence_capabilities          = true,
+ #ifdef DZN_USE_WSI_PLATFORM
+    .KHR_surface                              = true,
+    .KHR_get_surface_capabilities2            = true,
+@@ -116,10 +119,11 @@ dzn_physical_device_get_extensions(struct dzn_physical_device *pdev)
+       .KHR_external_memory                   = true,
+       .KHR_vulkan_memory_model               = true,
+       .EXT_depth_clip_enable                 = true,
++      .EXT_robustness2                       = true,
+       .KHR_external_semaphore                = true,
+ #ifdef _WIN32
+-      .KHR_external_memory_win32             = true,
+-      .KHR_external_semaphore_win32          = true,
++      .KHR_external_memory_win32             = false,
++      .KHR_external_semaphore_win32          = false,
+ #else
+       .KHR_external_memory_fd                = true,
+       .KHR_external_semaphore_fd             = true,
+@@ -149,6 +153,7 @@ dzn_physical_device_get_extensions(struct dzn_physical_device *pdev)
+ #endif
+       .KHR_synchronization2                  = true,
+       .KHR_timeline_semaphore                = true,
++      .KHR_pipeline_library                  = true,
+       .KHR_uniform_buffer_standard_layout    = true,
+       .EXT_buffer_device_address             = pdev->shader_model >= D3D_SHADER_MODEL_6_6,
+       .EXT_descriptor_indexing               = pdev->shader_model >= D3D_SHADER_MODEL_6_6,
+@@ -164,6 +169,7 @@ dzn_physical_device_get_extensions(struct dzn_physical_device *pdev)
+       .EXT_shader_subgroup_ballot            = true,
+       .EXT_shader_subgroup_vote              = true,
+       .EXT_subgroup_size_control             = true,
++      .KHR_load_store_op_none                = true,
+       .EXT_vertex_attribute_divisor          = true,
+       .MSFT_layered_driver                   = true,
+    };
+@@ -669,14 +675,14 @@ dzn_physical_device_get_features(const struct dzn_physical_device *pdev,
+ 
+    *features = (struct vk_features) {
+       .robustBufferAccess = true, /* This feature is mandatory */
+-      .fullDrawIndexUint32 = false,
++      .fullDrawIndexUint32 = true,
+       .imageCubeArray = true,
+       .independentBlend = true,
+       .geometryShader = true,
+-      .tessellationShader = false,
++      .tessellationShader = true,
+       .sampleRateShading = true,
+-      .dualSrcBlend = false,
+-      .logicOp = false,
++      .dualSrcBlend = true,
++      .logicOp = true,
+       .multiDrawIndirect = true,
+       .drawIndirectFirstInstance = true,
+       .depthClamp = true,
+@@ -686,7 +692,7 @@ dzn_physical_device_get_features(const struct dzn_physical_device *pdev,
+       .wideLines = driQueryOptionb(&instance->dri_options, "dzn_claim_wide_lines"),
+       .largePoints = false,
+       .alphaToOne = false,
+-      .multiViewport = false,
++      .multiViewport = true,
+       .samplerAnisotropy = true,
+       .textureCompressionETC2 = false,
+       .textureCompressionASTC_LDR = false,
+@@ -787,12 +793,12 @@ dzn_physical_device_get_features(const struct dzn_physical_device *pdev,
+       .shaderOutputLayer                  = false,
+       .subgroupBroadcastDynamicId         = true,
+ 
+-      .robustImageAccess                  = false,
+-      .inlineUniformBlock                 = false,
++      .robustImageAccess                  = true,
++      .inlineUniformBlock                 = true,
+       .descriptorBindingInlineUniformBlockUpdateAfterBind = false,
+       .pipelineCreationCacheControl       = false,
+       .privateData                        = true,
+-      .shaderDemoteToHelperInvocation     = false,
++      .shaderDemoteToHelperInvocation     = true,
+       .shaderTerminateInvocation          = false,
+       .subgroupSizeControl                = pdev->options1.WaveOps && pdev->shader_model >= D3D_SHADER_MODEL_6_6,
+       .computeFullSubgroups               = true,
+@@ -807,6 +813,14 @@ dzn_physical_device_get_features(const struct dzn_physical_device *pdev,
+       .vertexAttributeInstanceRateDivisor = true,
+       .vertexAttributeInstanceRateZeroDivisor = true,
+       .shaderReplicatedComposites         = true,
++      .maintenance5                       = true,
++      .maintenance6                       = true,
++      .depthClipEnable                    = true,
++      .robustBufferAccess2                = true,
++      .nullDescriptor                     = true,
++      .robustImageAccess2                 = true,
++      .transformFeedback                  = true,
++      .texelBufferAlignment               = true,
+    };
+ }
+ 
+-- 
+2.43.0
+

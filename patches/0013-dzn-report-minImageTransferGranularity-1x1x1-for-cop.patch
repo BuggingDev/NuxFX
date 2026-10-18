@@ -1,0 +1,36 @@
+From 9c5776fd7f19e38d7f34564139105b381e14a090 Mon Sep 17 00:00:00 2001
+From: aegnux-contributor <contributor@example.invalid>
+Date: Sun, 18 Oct 2026 04:51:52 +0300
+Subject: [PATCH 13/16] dzn: report minImageTransferGranularity 1x1x1 for copy
+ queues
+
+vkd3d-proton skips queue families whose minImageTransferGranularity is zero.
+---
+ src/microsoft/vulkan/dzn_device.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/microsoft/vulkan/dzn_device.c b/src/microsoft/vulkan/dzn_device.c
+index 61f51ae..4f8b784 100644
+--- a/src/microsoft/vulkan/dzn_device.c
++++ b/src/microsoft/vulkan/dzn_device.c
+@@ -468,7 +468,7 @@ dzn_physical_device_cache_caps(struct dzn_physical_device *pdev)
+                        VK_QUEUE_TRANSFER_BIT,
+          .queueCount = 4,
+          .timestampValidBits = 64,
+-         .minImageTransferGranularity = { 0, 0, 0 },
++         .minImageTransferGranularity = { 1, 1, 1 },
+       },
+       .desc = {
+          .Type = D3D12_COMMAND_LIST_TYPE_DIRECT,
+@@ -481,7 +481,7 @@ dzn_physical_device_cache_caps(struct dzn_physical_device *pdev)
+                        VK_QUEUE_TRANSFER_BIT,
+          .queueCount = 8,
+          .timestampValidBits = 64,
+-         .minImageTransferGranularity = { 0, 0, 0 },
++         .minImageTransferGranularity = { 1, 1, 1 },
+       },
+       .desc = {
+          .Type = D3D12_COMMAND_LIST_TYPE_COMPUTE,
+-- 
+2.43.0
+

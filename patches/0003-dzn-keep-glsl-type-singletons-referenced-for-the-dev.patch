@@ -1,0 +1,68 @@
+From b47b7e74e79afa50b1fdda479a0bb5dca9c18890 Mon Sep 17 00:00:00 2001
+From: aegnux-contributor <contributor@example.invalid>
+Date: Sun, 18 Oct 2026 04:51:52 +0300
+Subject: [PATCH 03/16] dzn: keep glsl type singletons referenced for the
+ device lifetime
+
+Meta blit shaders are compiled lazily while commands are recorded, outside any
+glsl_type_singleton_init_or_ref() pair. Hold one reference from device creation
+until device destruction, and drop it on the device creation error paths too.
+---
+ src/microsoft/vulkan/dzn_device.c | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/src/microsoft/vulkan/dzn_device.c b/src/microsoft/vulkan/dzn_device.c
+index 874850b..96d1433 100644
+--- a/src/microsoft/vulkan/dzn_device.c
++++ b/src/microsoft/vulkan/dzn_device.c
+@@ -23,6 +23,7 @@
+ 
+ #include "dzn_private.h"
+ 
++
+ #include "vk_alloc.h"
+ #include "vk_common_entrypoints.h"
+ #include "vk_cmd_enqueue_entrypoints.h"
+@@ -2182,6 +2183,8 @@ dzn_device_destroy(struct dzn_device *device, const VkAllocationCallbacks *pAllo
+    if (!device)
+       return;
+ 
++   glsl_type_singleton_decref();
++
+    struct dzn_instance *instance =
+       container_of(device->vk.physical->instance, struct dzn_instance, vk);
+ 
+@@ -2239,6 +2242,10 @@ dzn_device_create(struct dzn_physical_device *pdev,
+                   const VkAllocationCallbacks *pAllocator,
+                   VkDevice *out)
+ {
++   /* Hold the shared glsl type singletons for the device lifetime. Meta
++    * shaders and later NIR lowering use them outside of init/finish pairs. */
++   glsl_type_singleton_init_or_ref();
++
+    struct dzn_instance *instance = container_of(pdev->vk.instance, struct dzn_instance, vk);
+ 
+    uint32_t graphics_queue_count = 0;
+@@ -2259,8 +2266,10 @@ dzn_device_create(struct dzn_physical_device *pdev,
+    VK_MULTIALLOC_DECL(&ma, struct dzn_queue, queues, queue_count);
+ 
+    if (!vk_multialloc_zalloc2(&ma, &instance->vk.alloc, pAllocator,
+-                              VK_SYSTEM_ALLOCATION_SCOPE_DEVICE))
++                              VK_SYSTEM_ALLOCATION_SCOPE_DEVICE)) {
++      glsl_type_singleton_decref();
+       return vk_error(pdev, VK_ERROR_OUT_OF_HOST_MEMORY);
++   }
+ 
+    struct vk_device_dispatch_table dispatch_table;
+ 
+@@ -2291,6 +2300,7 @@ dzn_device_create(struct dzn_physical_device *pdev,
+       vk_device_init(&device->vk, &pdev->vk, &dispatch_table, pCreateInfo, pAllocator);
+    if (result != VK_SUCCESS) {
+       vk_free2(&device->vk.alloc, pAllocator, device);
++      glsl_type_singleton_decref();
+       return result;
+    }
+ 
+-- 
+2.43.0
+

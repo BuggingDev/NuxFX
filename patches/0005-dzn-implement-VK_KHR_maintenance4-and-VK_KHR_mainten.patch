@@ -1,0 +1,256 @@
+From 290175ef3e3c6b1de71289165126a26f5ee7d5a7 Mon Sep 17 00:00:00 2001
+From: aegnux-contributor <contributor@example.invalid>
+Date: Sun, 18 Oct 2026 04:51:52 +0300
+Subject: [PATCH 05/16] dzn: implement VK_KHR_maintenance4 and
+ VK_KHR_maintenance5 entrypoints
+
+Advertise maintenance4 and maintenance5 and provide the entrypoints that were
+missing: vkGetDeviceBufferMemoryRequirements, vkGetDeviceImageMemoryRequirements,
+vkGetDeviceImageSparseMemoryRequirements (dzn has no sparse support, so the count
+is zero), vkGetDeviceImageSubresourceLayout, vkGetImageSubresourceLayout2 and
+vkCmdBindIndexBuffer2 with an explicit size.
+---
+ src/microsoft/vulkan/dzn_cmd_buffer.c | 35 +++++++++---
+ src/microsoft/vulkan/dzn_device.c     | 78 ++++++++++++++++++++++++++-
+ src/microsoft/vulkan/dzn_image.c      | 60 +++++++++++++++++++++
+ 3 files changed, 166 insertions(+), 7 deletions(-)
+
+diff --git a/src/microsoft/vulkan/dzn_cmd_buffer.c b/src/microsoft/vulkan/dzn_cmd_buffer.c
+index 902e72f..1e2b1c2 100644
+--- a/src/microsoft/vulkan/dzn_cmd_buffer.c
++++ b/src/microsoft/vulkan/dzn_cmd_buffer.c
+@@ -5486,17 +5486,19 @@ dzn_CmdBindVertexBuffers(VkCommandBuffer commandBuffer,
+                     firstBinding + bindingCount - 1);
+ }
+ 
+-VKAPI_ATTR void VKAPI_CALL
+-dzn_CmdBindIndexBuffer(VkCommandBuffer commandBuffer,
+-                       VkBuffer buffer,
+-                       VkDeviceSize offset,
+-                       VkIndexType indexType)
++static void
++dzn_cmd_bind_index_buffer_impl(VkCommandBuffer commandBuffer,
++                               VkBuffer buffer,
++                               VkDeviceSize offset,
++                               VkDeviceSize size,
++                               VkIndexType indexType)
+ {
+    VK_FROM_HANDLE(dzn_cmd_buffer, cmdbuf, commandBuffer);
+    VK_FROM_HANDLE(dzn_buffer, buf, buffer);
+ 
+    cmdbuf->state.ib.view.BufferLocation = buf->gpuva + offset;
+-   cmdbuf->state.ib.view.SizeInBytes = buf->size - offset;
++   cmdbuf->state.ib.view.SizeInBytes =
++      size == VK_WHOLE_SIZE ? buf->size - offset : size;
+    switch (indexType) {
+    case VK_INDEX_TYPE_UINT16:
+       cmdbuf->state.ib.view.Format = DXGI_FORMAT_R16_UINT;
+@@ -5519,6 +5521,27 @@ dzn_CmdBindIndexBuffer(VkCommandBuffer commandBuffer,
+       cmdbuf->state.bindpoint[VK_PIPELINE_BIND_POINT_GRAPHICS].dirty |= DZN_CMD_BINDPOINT_DIRTY_PIPELINE;
+ }
+ 
++VKAPI_ATTR void VKAPI_CALL
++dzn_CmdBindIndexBuffer(VkCommandBuffer commandBuffer,
++                       VkBuffer buffer,
++                       VkDeviceSize offset,
++                       VkIndexType indexType)
++{
++   dzn_cmd_bind_index_buffer_impl(commandBuffer, buffer, offset,
++                                  VK_WHOLE_SIZE, indexType);
++}
++
++VKAPI_ATTR void VKAPI_CALL
++dzn_CmdBindIndexBuffer2KHR(VkCommandBuffer commandBuffer,
++                           VkBuffer buffer,
++                           VkDeviceSize offset,
++                           VkDeviceSize size,
++                           VkIndexType indexType)
++{
++   dzn_cmd_bind_index_buffer_impl(commandBuffer, buffer, offset,
++                                  size, indexType);
++}
++
+ VKAPI_ATTR void VKAPI_CALL
+ dzn_CmdResetEvent2(VkCommandBuffer commandBuffer,
+                    VkEvent event,
+diff --git a/src/microsoft/vulkan/dzn_device.c b/src/microsoft/vulkan/dzn_device.c
+index e7aee24..d433bb5 100644
+--- a/src/microsoft/vulkan/dzn_device.c
++++ b/src/microsoft/vulkan/dzn_device.c
+@@ -128,6 +128,8 @@ dzn_physical_device_get_extensions(struct dzn_physical_device *pdev)
+       .KHR_maintenance1                      = true,
+       .KHR_maintenance2                      = true,
+       .KHR_maintenance3                      = true,
++      .KHR_maintenance4                     = true,
++      .KHR_maintenance5                      = true,
+       .KHR_multiview                         = true,
+       .KHR_relaxed_block_layout              = true,
+       .KHR_sampler_mirror_clamp_to_edge      = true,
+@@ -793,7 +795,7 @@ dzn_physical_device_get_features(const struct dzn_physical_device *pdev,
+       .shaderZeroInitializeWorkgroupMemory = false,
+       .dynamicRendering                   = true,
+       .shaderIntegerDotProduct            = true,
+-      .maintenance4                       = false,
++      .maintenance4                       = true,
+       .shaderExpectAssume                 = true,
+ 
+       .vertexAttributeInstanceRateDivisor = true,
+@@ -3309,6 +3311,80 @@ dzn_GetBufferMemoryRequirements2(VkDevice dev,
+    }
+ }
+ 
++VKAPI_ATTR void VKAPI_CALL
++dzn_GetDeviceBufferMemoryRequirements(VkDevice dev,
++                                      const VkDeviceBufferMemoryRequirements *pInfo,
++                                      VkMemoryRequirements2 *pMemoryRequirements)
++{
++   VK_FROM_HANDLE(dzn_device, device, dev);
++   struct dzn_physical_device *pdev =
++      container_of(device->vk.physical, struct dzn_physical_device, vk);
++   const VkBufferCreateInfo *pCreateInfo = pInfo->pCreateInfo;
++
++   struct dzn_buffer buf = { 0 };
++   buf.size = pCreateInfo->size;
++   buf.usage = pCreateInfo->usage;
++   buf.shared = false;
++
++   if (buf.usage & VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT)
++      buf.size = MAX2(buf.size, ALIGN_POT(buf.size, 256));
++   if (buf.usage & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)
++      buf.size = MAX2(buf.size, ALIGN_POT(buf.size, 4));
++
++   buf.desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
++   buf.desc.Format = DXGI_FORMAT_UNKNOWN;
++   buf.desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
++   buf.desc.Width = buf.size;
++   buf.desc.Height = 1;
++   buf.desc.DepthOrArraySize = 1;
++   buf.desc.MipLevels = 1;
++   buf.desc.SampleDesc.Count = 1;
++   buf.desc.SampleDesc.Quality = 0;
++   buf.desc.Flags = D3D12_RESOURCE_FLAG_NONE;
++   buf.desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
++
++   if (buf.usage &
++       (VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
++        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT |
++        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)) {
++      buf.desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
++   }
++
++   const VkExternalMemoryBufferCreateInfo *external_info =
++      vk_find_struct_const(pCreateInfo->pNext, EXTERNAL_MEMORY_BUFFER_CREATE_INFO);
++   if (external_info && external_info->handleTypes != 0)
++      buf.shared = true;
++
++   uint32_t alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
++   VkDeviceSize size = buf.size;
++
++   if (buf.usage & VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT) {
++      alignment = MAX2(alignment, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
++      size = ALIGN_POT(size, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
++   }
++
++   pMemoryRequirements->memoryRequirements.size = size;
++   pMemoryRequirements->memoryRequirements.alignment = alignment;
++   pMemoryRequirements->memoryRequirements.memoryTypeBits =
++      dzn_physical_device_get_mem_type_mask_for_resource(pdev, &buf.desc, buf.shared);
++
++   vk_foreach_struct(ext, pMemoryRequirements->pNext) {
++      switch (ext->sType) {
++      case VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS: {
++         VkMemoryDedicatedRequirements *requirements =
++            (VkMemoryDedicatedRequirements *)ext;
++         requirements->requiresDedicatedAllocation = false;
++         requirements->prefersDedicatedAllocation = false;
++         break;
++      }
++
++      default:
++         vk_debug_ignored_stype(ext->sType);
++         break;
++      }
++   }
++}
++
+ VKAPI_ATTR VkResult VKAPI_CALL
+ dzn_BindBufferMemory2(VkDevice _device,
+                       uint32_t bindInfoCount,
+diff --git a/src/microsoft/vulkan/dzn_image.c b/src/microsoft/vulkan/dzn_image.c
+index e20849e..1e2b604 100644
+--- a/src/microsoft/vulkan/dzn_image.c
++++ b/src/microsoft/vulkan/dzn_image.c
+@@ -925,6 +925,29 @@ dzn_GetImageMemoryRequirements2(VkDevice _device,
+       pMemoryRequirements->memoryRequirements.size = D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
+ }
+ 
++VKAPI_ATTR void VKAPI_CALL
++dzn_GetDeviceImageMemoryRequirements(VkDevice dev,
++                                     const VkDeviceImageMemoryRequirements *pInfo,
++                                     VkMemoryRequirements2 *pMemoryRequirements)
++{
++   VkImage image;
++   VkResult ret = dzn_CreateImage(dev, pInfo->pCreateInfo, NULL, &image);
++   if (ret != VK_SUCCESS) {
++      pMemoryRequirements->memoryRequirements.size = 0;
++      pMemoryRequirements->memoryRequirements.alignment = 0;
++      pMemoryRequirements->memoryRequirements.memoryTypeBits = 0;
++      return;
++   }
++
++   const VkImageMemoryRequirementsInfo2 info = {
++      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2,
++      .pNext = NULL,
++      .image = image,
++   };
++   dzn_GetImageMemoryRequirements2(dev, &info, pMemoryRequirements);
++   dzn_DestroyImage(dev, image, NULL);
++}
++
+ VKAPI_ATTR void VKAPI_CALL
+ dzn_GetImageSubresourceLayout(VkDevice _device,
+                               VkImage _image,
+@@ -1573,3 +1596,40 @@ dzn_DestroyBufferView(VkDevice device,
+ {
+    dzn_buffer_view_destroy(dzn_buffer_view_from_handle(bufferView), pAllocator);
+ }
++
++/* KHR_maintenance5 / core 1.3 entrypoints that were advertised but missing. */
++VKAPI_ATTR void VKAPI_CALL
++dzn_GetDeviceImageSubresourceLayoutKHR(VkDevice _device,
++                                       const VkDeviceImageSubresourceInfoKHR *pInfo,
++                                       VkSubresourceLayout2KHR *pLayout)
++{
++   VkImage image;
++   if (dzn_CreateImage(_device, pInfo->pCreateInfo, NULL, &image) != VK_SUCCESS)
++      return;
++
++   VkImageSubresource subresource = pInfo->pSubresource->imageSubresource;
++   dzn_GetImageSubresourceLayout(_device, image, &subresource,
++                                 &pLayout->subresourceLayout);
++   dzn_DestroyImage(_device, image, NULL);
++}
++
++VKAPI_ATTR void VKAPI_CALL
++dzn_GetImageSubresourceLayout2KHR(VkDevice _device,
++                                  VkImage image,
++                                  const VkImageSubresource2KHR *pSubresource,
++                                  VkSubresourceLayout2KHR *pLayout)
++{
++   VkImageSubresource subresource = pSubresource->imageSubresource;
++   dzn_GetImageSubresourceLayout(_device, image, &subresource,
++                                 &pLayout->subresourceLayout);
++}
++
++VKAPI_ATTR void VKAPI_CALL
++dzn_GetDeviceImageSparseMemoryRequirements(VkDevice device,
++                                           const VkDeviceImageMemoryRequirements *pInfo,
++                                           uint32_t *pSparseMemoryRequirementCount,
++                                           VkSparseImageMemoryRequirements2 *pSparseMemoryRequirements)
++{
++   /* Sparse residency is not advertised, so there are no sparse requirements. */
++   *pSparseMemoryRequirementCount = 0;
++}
+-- 
+2.43.0
+

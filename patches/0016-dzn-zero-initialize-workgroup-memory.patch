@@ -1,0 +1,47 @@
+From fa23c1d3baedae02614aaec98bd0d01bade22b26 Mon Sep 17 00:00:00 2001
+From: aegnux-contributor <contributor@example.invalid>
+Date: Sun, 18 Oct 2026 04:51:53 +0300
+Subject: [PATCH 16/16] dzn: zero-initialize workgroup memory
+
+Restore the nir_zero_initialize_shared_memory pass for compute shaders that use
+shared memory, and report shaderZeroInitializeWorkgroupMemory. DXVK 3.x requires
+that feature. The pass had been removed in an experiment while the feature stayed
+advertised.
+---
+ src/microsoft/spirv_to_dxil/dxil_spirv_nir.c | 6 ++++++
+ src/microsoft/vulkan/dzn_device.c            | 2 +-
+ 2 files changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/microsoft/spirv_to_dxil/dxil_spirv_nir.c b/src/microsoft/spirv_to_dxil/dxil_spirv_nir.c
+index a30040f..2f62a5e 100644
+--- a/src/microsoft/spirv_to_dxil/dxil_spirv_nir.c
++++ b/src/microsoft/spirv_to_dxil/dxil_spirv_nir.c
+@@ -976,6 +976,12 @@ dxil_spirv_nir_passes(nir_shader *nir,
+ 
+    NIR_PASS_V(nir, nir_opt_deref);
+ 
++   /* Workgroup memory must read as zero when the device reports
++    * shaderZeroInitializeWorkgroupMemory (DXVK requires that feature). */
++   if (nir->info.stage == MESA_SHADER_COMPUTE && nir->info.shared_size > 0) {
++      NIR_PASS_V(nir, nir_zero_initialize_shared_memory,
++                  nir->info.shared_size, 4);
++   }
+    NIR_PASS_V(nir, nir_lower_memory_model);
+    NIR_PASS_V(nir, dxil_nir_lower_coherent_loads_and_stores);
+ 
+diff --git a/src/microsoft/vulkan/dzn_device.c b/src/microsoft/vulkan/dzn_device.c
+index bdb51de..788b714 100644
+--- a/src/microsoft/vulkan/dzn_device.c
++++ b/src/microsoft/vulkan/dzn_device.c
+@@ -804,7 +804,7 @@ dzn_physical_device_get_features(const struct dzn_physical_device *pdev,
+       .computeFullSubgroups               = true,
+       .synchronization2                   = true,
+       .textureCompressionASTC_HDR         = false,
+-      .shaderZeroInitializeWorkgroupMemory = false,
++      .shaderZeroInitializeWorkgroupMemory = true,
+       .dynamicRendering                   = true,
+       .shaderIntegerDotProduct            = true,
+       .maintenance4                       = true,
+-- 
+2.43.0
+

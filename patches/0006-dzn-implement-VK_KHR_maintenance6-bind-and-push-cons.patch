@@ -1,0 +1,75 @@
+From 8908173721fabd1ad533534a8615f27816db0422 Mon Sep 17 00:00:00 2001
+From: aegnux-contributor <contributor@example.invalid>
+Date: Sun, 18 Oct 2026 04:51:52 +0300
+Subject: [PATCH 06/16] dzn: implement VK_KHR_maintenance6 bind and push
+ constant commands
+
+maintenance6 was advertised, but dzn did not implement vkCmdBindDescriptorSets2KHR
+or vkCmdPushConstants2KHR. The common runtime resolves a missing v2 entrypoint to
+a stub that does nothing, so the calls were silently dropped. DXVK uses the v2
+bind call, so draws ran with no descriptor sets bound. One After Effects fragment
+shader then looped on an undefined count read from a constant buffer, the GPU
+hung and the D3D12 device was lost (DXGI_ERROR_DEVICE_HUNG). That device loss
+was the trigger of the crash that patch 02 also addresses.
+
+Both entrypoints are thin wrappers over the v1 functions.
+---
+ src/microsoft/vulkan/dzn_cmd_buffer.c | 32 +++++++++++++++++++++++++++
+ src/microsoft/vulkan/dzn_device.c     |  1 +
+ 2 files changed, 33 insertions(+)
+
+diff --git a/src/microsoft/vulkan/dzn_cmd_buffer.c b/src/microsoft/vulkan/dzn_cmd_buffer.c
+index 1e2b1c2..eef9a14 100644
+--- a/src/microsoft/vulkan/dzn_cmd_buffer.c
++++ b/src/microsoft/vulkan/dzn_cmd_buffer.c
+@@ -6036,3 +6036,35 @@ dzn_CmdSetStencilReference(VkCommandBuffer commandBuffer,
+ 
+    cmdbuf->state.dirty |= DZN_CMD_DIRTY_STENCIL_REF;
+ }
++
++/* VK_KHR_maintenance6 (core 1.4) command variants. The common runtime forwards
++ * the v2 entrypoints to the driver and resolves them to a no-op stub when the
++ * driver does not provide them, so dzn has to implement both. Without these,
++ * descriptor set and push constant updates were silently dropped. */
++VKAPI_ATTR void VKAPI_CALL
++dzn_CmdBindDescriptorSets2KHR(VkCommandBuffer commandBuffer,
++                              const VkBindDescriptorSetsInfo *pBindDescriptorSetsInfo)
++{
++   VkPipelineBindPoint bindpoint =
++      (pBindDescriptorSetsInfo->stageFlags & VK_SHADER_STAGE_COMPUTE_BIT) ?
++      VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS;
++
++   dzn_CmdBindDescriptorSets(commandBuffer, bindpoint,
++                             pBindDescriptorSetsInfo->layout,
++                             pBindDescriptorSetsInfo->firstSet,
++                             pBindDescriptorSetsInfo->descriptorSetCount,
++                             pBindDescriptorSetsInfo->pDescriptorSets,
++                             pBindDescriptorSetsInfo->dynamicOffsetCount,
++                             pBindDescriptorSetsInfo->pDynamicOffsets);
++}
++
++VKAPI_ATTR void VKAPI_CALL
++dzn_CmdPushConstants2KHR(VkCommandBuffer commandBuffer,
++                         const VkPushConstantsInfo *pPushConstantsInfo)
++{
++   dzn_CmdPushConstants(commandBuffer, pPushConstantsInfo->layout,
++                        pPushConstantsInfo->stageFlags,
++                        pPushConstantsInfo->offset,
++                        pPushConstantsInfo->size,
++                        pPushConstantsInfo->pValues);
++}
+diff --git a/src/microsoft/vulkan/dzn_device.c b/src/microsoft/vulkan/dzn_device.c
+index d433bb5..bb8f9ae 100644
+--- a/src/microsoft/vulkan/dzn_device.c
++++ b/src/microsoft/vulkan/dzn_device.c
+@@ -130,6 +130,7 @@ dzn_physical_device_get_extensions(struct dzn_physical_device *pdev)
+       .KHR_maintenance3                      = true,
+       .KHR_maintenance4                     = true,
+       .KHR_maintenance5                      = true,
++      .KHR_maintenance6                      = true,
+       .KHR_multiview                         = true,
+       .KHR_relaxed_block_layout              = true,
+       .KHR_sampler_mirror_clamp_to_edge      = true,
+-- 
+2.43.0
+

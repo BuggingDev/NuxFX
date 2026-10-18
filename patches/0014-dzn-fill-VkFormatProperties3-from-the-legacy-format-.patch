@@ -1,0 +1,42 @@
+From bf58aac04e69bb3753d17de00b624be2b38fc73f Mon Sep 17 00:00:00 2001
+From: aegnux-contributor <contributor@example.invalid>
+Date: Sun, 18 Oct 2026 04:51:53 +0300
+Subject: [PATCH 14/16] dzn: fill VkFormatProperties3 from the legacy format
+ properties
+
+DXVK 3.x reads format features through VkFormatProperties3, which dzn did not
+fill, so every format reported zero features. Copy the legacy masks into the
+structure when the application chains it.
+---
+ src/microsoft/vulkan/dzn_device.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/src/microsoft/vulkan/dzn_device.c b/src/microsoft/vulkan/dzn_device.c
+index 4f8b784..fded237 100644
+--- a/src/microsoft/vulkan/dzn_device.c
++++ b/src/microsoft/vulkan/dzn_device.c
+@@ -1633,6 +1633,21 @@ dzn_GetPhysicalDeviceFormatProperties2(VkPhysicalDevice physicalDevice,
+    VK_FROM_HANDLE(dzn_physical_device, pdev, physicalDevice);
+ 
+    dzn_physical_device_get_format_properties(pdev, format, pFormatProperties);
++
++   /* DXVK 3.x reads format features only through VkFormatProperties3 (core in
++    * Vulkan 1.3). Mirror the legacy masks there; otherwise every format reports
++    * zero features, and RTV creation fails for mutable images such as the
++    * B8G8R8A8/R8G8B8A8 render targets After Effects uses. */
++   const VkFormatProperties *legacy = &pFormatProperties->formatProperties;
++   for (VkBaseOutStructure *s = (VkBaseOutStructure *)pFormatProperties->pNext;
++        s; s = s->pNext) {
++      if (s->sType == VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3) {
++         VkFormatProperties3 *p3 = (VkFormatProperties3 *)s;
++         p3->linearTilingFeatures = legacy->linearTilingFeatures;
++         p3->optimalTilingFeatures = legacy->optimalTilingFeatures;
++         p3->bufferFeatures = legacy->bufferFeatures;
++      }
++   }
+ }
+ 
+ VKAPI_ATTR VkResult VKAPI_CALL
+-- 
+2.43.0
+

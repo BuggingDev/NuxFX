@@ -1,0 +1,121 @@
+From 1d4cdf4aca4b39a8965a0a74f7b2522cb7614f88 Mon Sep 17 00:00:00 2001
+From: aegnux-contributor <contributor@example.invalid>
+Date: Sun, 18 Oct 2026 04:51:52 +0300
+Subject: [PATCH 09/16] dzn: advertise VK_EXT_transform_feedback as no-op stubs
+
+LIMITATION: stream output is not implemented. The EXT entrypoints exist and do
+nothing, and the transform feedback features and limits are reported so the
+extension can be advertised. vkd3d-proton refuses to create a device without it.
+Applications that depend on transform feedback will render incorrectly.
+---
+ src/microsoft/vulkan/dzn_cmd_buffer.c | 64 +++++++++++++++++++++++++++
+ src/microsoft/vulkan/dzn_device.c     | 11 +++++
+ 2 files changed, 75 insertions(+)
+
+diff --git a/src/microsoft/vulkan/dzn_cmd_buffer.c b/src/microsoft/vulkan/dzn_cmd_buffer.c
+index 63cc3f5..6f80e67 100644
+--- a/src/microsoft/vulkan/dzn_cmd_buffer.c
++++ b/src/microsoft/vulkan/dzn_cmd_buffer.c
+@@ -6063,6 +6063,70 @@ dzn_CmdSetStencilReference(VkCommandBuffer commandBuffer,
+    cmdbuf->state.dirty |= DZN_CMD_DIRTY_STENCIL_REF;
+ }
+ 
++/* VK_EXT_transform_feedback: dzn has no stream-output lowering yet. The
++ * entrypoints exist so the extension can be advertised; vkd3d-proton refuses
++ * to create a D3D12 device without it. Stream output is dropped, not emulated. */
++VKAPI_ATTR void VKAPI_CALL
++dzn_CmdBindTransformFeedbackBuffersEXT(VkCommandBuffer commandBuffer,
++                                       uint32_t firstBinding,
++                                       uint32_t bindingCount,
++                                       const VkBuffer *pBuffers,
++                                       const VkDeviceSize *pOffsets,
++                                       const VkDeviceSize *pSizes)
++{
++}
++
++VKAPI_ATTR void VKAPI_CALL
++dzn_CmdBeginTransformFeedbackEXT(VkCommandBuffer commandBuffer,
++                                 uint32_t firstCounterBuffer,
++                                 uint32_t counterBufferCount,
++                                 const VkBuffer *pCounterBuffers,
++                                 const VkDeviceSize *pCounterBufferOffsets)
++{
++}
++
++VKAPI_ATTR void VKAPI_CALL
++dzn_CmdEndTransformFeedbackEXT(VkCommandBuffer commandBuffer,
++                               uint32_t firstCounterBuffer,
++                               uint32_t counterBufferCount,
++                               const VkBuffer *pCounterBuffers,
++                               const VkDeviceSize *pCounterBufferOffsets)
++{
++}
++
++VKAPI_ATTR void VKAPI_CALL
++dzn_CmdBeginQueryIndexedEXT(VkCommandBuffer commandBuffer,
++                            VkQueryPool queryPool,
++                            uint32_t query,
++                            VkQueryControlFlags flags,
++                            uint32_t index)
++{
++   /* Only stream 0 is reported, and it is the same as a plain query. */
++   if (index == 0)
++      dzn_CmdBeginQuery(commandBuffer, queryPool, query, flags);
++}
++
++VKAPI_ATTR void VKAPI_CALL
++dzn_CmdEndQueryIndexedEXT(VkCommandBuffer commandBuffer,
++                          VkQueryPool queryPool,
++                          uint32_t query,
++                          uint32_t index)
++{
++   if (index == 0)
++      dzn_CmdEndQuery(commandBuffer, queryPool, query);
++}
++
++VKAPI_ATTR void VKAPI_CALL
++dzn_CmdDrawIndirectByteCountEXT(VkCommandBuffer commandBuffer,
++                                uint32_t instanceCount,
++                                uint32_t firstInstance,
++                                VkBuffer counterBuffer,
++                                VkDeviceSize counterBufferOffset,
++                                uint32_t counterOffset,
++                                uint32_t vertexStride)
++{
++}
++
+ /* VK_KHR_maintenance6 (core 1.4) command variants. The common runtime forwards
+  * the v2 entrypoints to the driver and resolves them to a no-op stub when the
+  * driver does not provide them, so dzn has to implement both. Without these,
+diff --git a/src/microsoft/vulkan/dzn_device.c b/src/microsoft/vulkan/dzn_device.c
+index ad66fb7..838cb5b 100644
+--- a/src/microsoft/vulkan/dzn_device.c
++++ b/src/microsoft/vulkan/dzn_device.c
+@@ -155,6 +155,7 @@ dzn_physical_device_get_extensions(struct dzn_physical_device *pdev)
+ #endif
+       .EXT_scalar_block_layout               = true,
+       .EXT_separate_stencil_usage            = true,
++      .EXT_transform_feedback                = true,
+       .KHR_push_descriptor                   = true,
+       .EXT_shader_replicated_composites      = true,
+       .EXT_shader_subgroup_ballot            = true,
+@@ -841,6 +842,16 @@ dzn_physical_device_get_properties(const struct dzn_physical_device *pdev,
+       .maxStorageBufferRange = 1 << D3D12_REQ_BUFFER_RESOURCE_TEXEL_COUNT_2_TO_EXP,
+       .maxPushConstantsSize = 256,
+       .maxPushDescriptors = 32,
++      .maxTransformFeedbackStreams = 1,
++      .maxTransformFeedbackBuffers = 4,
++      .maxTransformFeedbackBufferSize = 1ull << 32,
++      .maxTransformFeedbackStreamDataSize = 512,
++      .maxTransformFeedbackBufferDataSize = 512,
++      .maxTransformFeedbackBufferDataStride = 512,
++      .transformFeedbackQueries = true,
++      .transformFeedbackStreamsLinesTriangles = false,
++      .transformFeedbackRasterizationStreamSelect = false,
++      .transformFeedbackDraw = true,
+       .maxMemoryAllocationCount = 4096,
+       .maxSamplerAllocationCount = 4000,
+       .bufferImageGranularity = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
+-- 
+2.43.0
+

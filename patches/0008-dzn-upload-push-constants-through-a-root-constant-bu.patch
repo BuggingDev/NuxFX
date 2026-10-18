@@ -1,0 +1,144 @@
+From 8461639d4457a4a44da5c4c5f225d4135dd65879 Mon Sep 17 00:00:00 2001
+From: aegnux-contributor <contributor@example.invalid>
+Date: Sun, 18 Oct 2026 04:51:52 +0300
+Subject: [PATCH 08/16] dzn: upload push constants through a root constant
+ buffer
+
+Push constants were 32-bit root constants limited to 128 bytes. They are now
+copied into an upload buffer and bound as a root CBV, and dzn reports
+maxPushConstantsSize 256 (MAX_PUSH_CONSTANT_DWORDS is 64).
+---
+ src/microsoft/vulkan/dzn_cmd_buffer.c     | 41 +++++++++++++++++------
+ src/microsoft/vulkan/dzn_descriptor_set.c | 12 ++++---
+ src/microsoft/vulkan/dzn_device.c         |  2 +-
+ src/microsoft/vulkan/dzn_private.h        |  5 ++-
+ 4 files changed, 42 insertions(+), 18 deletions(-)
+
+diff --git a/src/microsoft/vulkan/dzn_cmd_buffer.c b/src/microsoft/vulkan/dzn_cmd_buffer.c
+index fa971f7..63cc3f5 100644
+--- a/src/microsoft/vulkan/dzn_cmd_buffer.c
++++ b/src/microsoft/vulkan/dzn_cmd_buffer.c
+@@ -3522,23 +3522,42 @@ dzn_cmd_buffer_update_push_constants(struct dzn_cmd_buffer *cmdbuf, uint32_t bin
+       bindpoint == VK_PIPELINE_BIND_POINT_GRAPHICS ?
+       &cmdbuf->state.push_constant.gfx : &cmdbuf->state.push_constant.compute;
+ 
+-   uint32_t offset = state->offset / 4;
+-   uint32_t end = ALIGN(state->end, 4) / 4;
+-   uint32_t count = end - offset;
++   if (!state->end)
++      return;
+ 
+-   if (!count)
++   const struct dzn_pipeline *pipeline = cmdbuf->state.pipeline;
++   uint32_t slot = pipeline->root.push_constant_cbv_param_idx;
++   if (slot == UINT32_MAX)
+       return;
+ 
+-   uint32_t slot = cmdbuf->state.pipeline->root.push_constant_cbv_param_idx;
+-   uint32_t *vals = state->values + offset;
++   const size_t push_size = MAX_PUSH_CONSTANT_DWORDS * 4;
++
++   if (!state->upload_res) {
++      uint64_t offset;
++      if (dzn_cmd_buffer_alloc_internal_buf(cmdbuf, push_size,
++                                            DZN_INTERNAL_BUF_UPLOAD,
++                                            D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER,
++                                            D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT,
++                                            &state->upload_res, &offset) != VK_SUCCESS)
++         return;
++      state->upload_offset = offset;
++   }
++
++   void *map = NULL;
++   if (FAILED(ID3D12Resource_Map(state->upload_res, 0, NULL, &map))) {
++      vk_command_buffer_set_error(&cmdbuf->vk, VK_ERROR_OUT_OF_HOST_MEMORY);
++      return;
++   }
++   memcpy(map + state->upload_offset, state->values, push_size);
++   ID3D12Resource_Unmap(state->upload_res, 0, NULL);
++
++   D3D12_GPU_VIRTUAL_ADDRESS addr =
++      ID3D12Resource_GetGPUVirtualAddress(state->upload_res) + state->upload_offset;
+ 
+    if (bindpoint == VK_PIPELINE_BIND_POINT_GRAPHICS)
+-      ID3D12GraphicsCommandList1_SetGraphicsRoot32BitConstants(cmdbuf->cmdlist, slot, count, vals, offset);
++      ID3D12GraphicsCommandList1_SetGraphicsRootConstantBufferView(cmdbuf->cmdlist, slot, addr);
+    else
+-      ID3D12GraphicsCommandList1_SetComputeRoot32BitConstants(cmdbuf->cmdlist, slot, count, vals, offset);
+-
+-   state->offset = 0;
+-   state->end = 0;
++      ID3D12GraphicsCommandList1_SetComputeRootConstantBufferView(cmdbuf->cmdlist, slot, addr);
+ }
+ 
+ static void
+diff --git a/src/microsoft/vulkan/dzn_descriptor_set.c b/src/microsoft/vulkan/dzn_descriptor_set.c
+index ec16295..7f06ab5 100644
+--- a/src/microsoft/vulkan/dzn_descriptor_set.c
++++ b/src/microsoft/vulkan/dzn_descriptor_set.c
+@@ -852,12 +852,14 @@ dzn_pipeline_layout_create(struct dzn_device *device,
+       layout->root.push_constant_cbv_param_idx = layout->root.param_count;
+       D3D12_ROOT_PARAMETER1 *root_param = &root_params[layout->root.param_count++];
+ 
+-      root_param->ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+-      root_param->Constants.ShaderRegister = 0;
+-      root_param->Constants.Num32BitValues = ALIGN(push_constant_size, 4) / 4;
+-      root_param->Constants.RegisterSpace = DZN_REGISTER_SPACE_PUSH_CONSTANT;
++      root_param->ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
++      root_param->Descriptor.ShaderRegister = 0;
++      root_param->Descriptor.RegisterSpace = DZN_REGISTER_SPACE_PUSH_CONSTANT;
++      root_param->Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE;
+       root_param->ShaderVisibility = translate_desc_visibility(push_constant_flags);
+-      root_dwords += root_param->Constants.Num32BitValues;
++      root_dwords += 2;
++   } else {
++      layout->root.push_constant_cbv_param_idx = UINT32_MAX;
+    }
+ 
+    assert(layout->root.param_count <= ARRAY_SIZE(root_params));
+diff --git a/src/microsoft/vulkan/dzn_device.c b/src/microsoft/vulkan/dzn_device.c
+index 0c0ac16..ad66fb7 100644
+--- a/src/microsoft/vulkan/dzn_device.c
++++ b/src/microsoft/vulkan/dzn_device.c
+@@ -839,7 +839,7 @@ dzn_physical_device_get_properties(const struct dzn_physical_device *pdev,
+       .maxTexelBufferElements = 1 << D3D12_REQ_BUFFER_RESOURCE_TEXEL_COUNT_2_TO_EXP,
+       .maxUniformBufferRange = D3D12_REQ_CONSTANT_BUFFER_ELEMENT_COUNT * D3D12_STANDARD_VECTOR_SIZE * sizeof(float),
+       .maxStorageBufferRange = 1 << D3D12_REQ_BUFFER_RESOURCE_TEXEL_COUNT_2_TO_EXP,
+-      .maxPushConstantsSize = 128,
++      .maxPushConstantsSize = 256,
+       .maxPushDescriptors = 32,
+       .maxMemoryAllocationCount = 4096,
+       .maxSamplerAllocationCount = 4000,
+diff --git a/src/microsoft/vulkan/dzn_private.h b/src/microsoft/vulkan/dzn_private.h
+index fd9db4d..77f5a60 100644
+--- a/src/microsoft/vulkan/dzn_private.h
++++ b/src/microsoft/vulkan/dzn_private.h
+@@ -405,7 +405,7 @@ enum dzn_cmd_dirty {
+ #define MAX_DYNAMIC_STORAGE_BUFFERS 4
+ #define MAX_DYNAMIC_BUFFERS                                                  \
+    (MAX_DYNAMIC_UNIFORM_BUFFERS + MAX_DYNAMIC_STORAGE_BUFFERS)
+-#define MAX_PUSH_CONSTANT_DWORDS 32
++#define MAX_PUSH_CONSTANT_DWORDS 64
+ 
+ #define NUM_BIND_POINT VK_PIPELINE_BIND_POINT_COMPUTE + 1
+ 
+@@ -560,6 +560,8 @@ struct dzn_cmd_buffer_push_constant_state {
+    uint32_t offset;
+    uint32_t end;
+    uint32_t values[MAX_PUSH_CONSTANT_DWORDS];
++   ID3D12Resource *upload_res;
++   uint64_t upload_offset;
+ };
+ 
+ struct dzn_rendering_attachment {
+@@ -916,6 +918,7 @@ struct dzn_pipeline {
+    VkPipelineCreateFlags2KHR flags;
+    struct dzn_device *device;
+    struct {
++      uint32_t param_count;
+       uint32_t sets_param_count;
+       uint32_t sysval_cbv_param_idx;
+       uint32_t push_constant_cbv_param_idx;
+-- 
+2.43.0
+
