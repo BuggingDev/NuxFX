@@ -21,7 +21,8 @@ Effects 2024 installation and Wine runner (aegnux sets both up).
 ## What is in this repository
 
 ```
-patches/   16 patches (git format-patch) against pristine Mesa 25.2.8
+patches/   17 patches (git format-patch) against pristine Mesa 25.2.8
+tests/     D3D11 present regression check (run_dxgi_present_test.sh, needs patch 17)
 docs/      technical note (findings, evidence) and known issues
 scripts/   build, launch, crash-state, GPU sniffer test, dzn audit, apiVersion layer
            scripts/tools/xcap.c captures one X11 window (for UI checks)

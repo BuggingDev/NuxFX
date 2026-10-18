@@ -68,3 +68,41 @@ Status date: 2026-10-18. Patch numbers refer to `patches/`.
 - The Wine runner and the aegnux prefix. Use aegnux or your own runner.
 - The debugging instrumentation used to find the bugs (removed before the patches
   were produced).
+## Fixed: VIEWPORT_WITH_COUNT and SCISSOR_WITH_COUNT (patch 17)
+
+- dzn recognised only the non-count viewport and scissor dynamic states. A pipeline
+  that listed VK_DYNAMIC_STATE_VIEWPORT_WITH_COUNT was treated as static, and the
+  runtime's vkCmdSetViewportWithCount never reached D3D12. DXVK's present blit then
+  drew nothing, so D3D11 swapchain windows showed black. Applications that use the
+  count variants were affected in the same way.
+- Verified with a Vulkan replica of DXVK's present blit (black before, expected
+  pixels after) and with tests/run_dxgi_present_test.sh.
+
+## Open: D3D11 clear without a readback presents black
+
+- A D3D11 swapchain test that only clears the backbuffer and presents shows black on
+  this stack, even with patch 17. A staging copy and Map of the backbuffer makes the
+  presents correct. The regression test keeps that copy for this reason.
+- Not investigated further. The suspicion is DXVK's deferred clears interacting with
+  the present blit.
+
+## Open: After Effects composition viewer stays blank
+
+- Symptom: after creating a composition and a solid, the Composition panel shows only
+  the viewer background. Panels and the timeline update normally.
+- Checked and not the cause:
+  - The DXVK present path (fixed in patch 17; the viewer still does not present).
+  - OpenGL: a Wine WGL test with a GL 3.3 core context, GLSL compile and link, a solid
+    draw and texture sampling produces the expected pixels.
+  - The renderer preference: GF.DisableAcceleratedRenderer=true (CPU) shows the same
+    empty viewer.
+  - Blocking windows: the X11 window list shows no modal dialog.
+- Observed during AE runs: AE creates vkd3d-proton DXGI swapchains, but during the run
+  it makes no vkAcquireNextImageKHR or vkQueuePresentKHR calls and no wglSwapBuffers
+  calls. It issues 26 vkQueueSubmit2 calls in total. Some threads loop on
+  vkWaitSemaphores(UINT64_MAX) and others wait with WaitForMultipleObjects(INFINITE).
+- A minimal D3D12 DXGI test (frame-latency waitable object, clear, Present) presents
+  60 frames on this stack, so the stall depends on something specific to AE.
+- Next steps: find the NT object the render thread waits on (Wine server wait
+  tracing), and check whether AE's swapchain relies on a feature dzn does not expose
+  (VK_KHR_present_id, VK_KHR_present_wait, VK_EXT_swapchain_maintenance1).
