@@ -167,3 +167,29 @@ All of this instrumentation was removed before the patch series was produced.
   0x3e8 or when `AE.DebugShowPreviousCrashWarning` is true. `clear_crash_state.sh`
   handles both.
 - `Creating device` lines come from DXVK, not from dzn.
+## 10. Black D3D11 windows and the empty Composition panel
+
+Two separate problems looked like one ("the panel does not draw"):
+
+1. **dzn ignored the count-variant viewport/scissor dynamic states (patch 17).**
+   DXVK's present blit uses VK_DYNAMIC_STATE_VIEWPORT_WITH_COUNT and
+   vkCmdSetViewportWithCount. dzn treated such pipelines as static and never saw the
+   runtime's dynamic viewport, so the blit drew nothing and every D3D11 swapchain
+   window was black. Narrowed down with a Vulkan replica of DXVK's present: the
+   replica stayed correct while matching shaders, specialization constants, push
+   constants, descriptor heaps, update templates, blending, topology, image count and
+   swapchain size one by one; switching to the WITH_COUNT dynamic states alone turned
+   it black.
+2. **AE's DirectX display needs CUDA and Direct3D 12 to share images.** After patch 17
+   D3D11 windows were correct, but the Composition panel still stayed empty. AE created
+   vkd3d-proton swapchains for its panels and never presented to them; the same
+   happened on lavapipe, so it was not a driver bug. Hiding CUDA from AE, or keeping
+   CUDA and setting `DS.DisableDirectXDisplay`, made the panel render. The CUDA bridge
+   in the prefix cannot share resources with vkd3d-proton (`cuDeviceGetLuid` fails),
+   so the DirectX display path never completes. `scripts/ae_prefs.sh` applies the
+   setting before each start; `tests/run_ae_viewer_test.sh` checks the result.
+
+Tools that made this tractable: tracing Wine's Vulkan thunks (+vulkan) to count
+submits, acquires and presents per run; an A/B run on lavapipe; and running AE on a
+private Xvfb display, because input on the desktop window and first-run tips changed
+test results.

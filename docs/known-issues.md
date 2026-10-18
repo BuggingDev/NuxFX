@@ -30,19 +30,18 @@ Status date: 2026-10-18. Patch numbers refer to `patches/`.
 - **apiVersion raised to 1.3 (patch 04).** An application that asks for an older
   apiVersion gets the device entrypoints gated at 1.3 by the loader. dzn raises the
   instance's app apiVersion and prints one line to stderr. The aegnux layer in
-  `scripts/apiver_layer/` does the same from outside the driver. Both are kept on
-  purpose; either alone is enough for AE.
+  `scripts/apiver_layer/` does the same from outside the driver. It is optional
+  (`AEGNUX_APIVER_LAYER=1`): with the previous default layer path it was never
+  loaded and AE still worked, so patch 04 alone is enough.
 - **KHR_external_memory_win32 and KHR_external_semaphore_win32** are turned off in
   `_WIN32` builds (patch 15). This is not exercised on Linux.
 
 ## Advanced 3D
 
 - The plugin loads, the renderer can be selected, and a 3D layer can be created.
-- **Rendered output has not been verified.** In our captures the viewer showed only
-  the background, also for Classic 3D, so the capture method cannot prove or
-  disprove rendering. The "Save Frame As" check did not complete.
-- Frame render time in the status bar increased when Advanced 3D was active. This is
-  an observation only.
+- Earlier captures showed only the panel background for every renderer. That was the
+  empty Composition panel, fixed since (see "Fixed: empty Composition panel"). The
+  current state is under "Open: Advanced 3D does not render on the GPU".
 
 ## Stability and correctness
 
@@ -59,8 +58,10 @@ Status date: 2026-10-18. Patch numbers refer to `patches/`.
   vkGetQueueCheckpointData2NV under VK_KHR_synchronization2. Those two come from AMD
   and NV extensions that dzn does not advertise, so they show as NULL and are
   expected.
-- Development logs mention `dxgi: SetBackgroundColor: Not implemented`,
-  `nvcuda LUID` warnings and Wine `fixme` lines. They were not investigated.
+- Development logs mention `dxgi: SetBackgroundColor: Not implemented` and Wine
+  `fixme` lines. They were not investigated. The `nvcuda` LUID errors come from the
+  CUDA bridge that cannot match CUDA devices to Direct3D adapters (see "Fixed: empty
+  Composition panel").
 
 ## Not included
 
@@ -68,6 +69,7 @@ Status date: 2026-10-18. Patch numbers refer to `patches/`.
 - The Wine runner and the aegnux prefix. Use aegnux or your own runner.
 - The debugging instrumentation used to find the bugs (removed before the patches
   were produced).
+
 ## Fixed: VIEWPORT_WITH_COUNT and SCISSOR_WITH_COUNT (patch 17)
 
 - dzn recognised only the non-count viewport and scissor dynamic states. A pipeline
@@ -78,31 +80,55 @@ Status date: 2026-10-18. Patch numbers refer to `patches/`.
 - Verified with a Vulkan replica of DXVK's present blit (black before, expected
   pixels after) and with tests/run_dxgi_present_test.sh.
 
-## Open: D3D11 clear without a readback presents black
+## Fixed: empty Composition panel (CUDA and AE's DirectX display)
 
-- A D3D11 swapchain test that only clears the backbuffer and presents shows black on
-  this stack, even with patch 17. A staging copy and Map of the backbuffer makes the
-  presents correct. The regression test keeps that copy for this reason.
-- Not investigated further. The suspicion is DXVK's deferred clears interacting with
-  the present blit.
+- Symptom: after creating a composition, the Composition panel showed only the
+  panel background. Panels and the timeline updated normally.
+- Cause: with CUDA available, AE shows frames through its DirectX display, which
+  passes images between CUDA and Direct3D 12. The CUDA bridge in the prefix
+  (nvidia-libs, forwarding to the Linux libcuda) cannot share resources with
+  vkd3d-proton; `cuDeviceGetLuid` already fails. AE creates the vkd3d-proton
+  swapchains for its panels but never presents to them (no vkAcquireNextImageKHR or
+  vkQueuePresentKHR during a whole run).
+- Evidence: the same empty panel on lavapipe instead of dzn (so not a dzn bug); the
+  panel renders correctly when CUDA is hidden from AE, and when CUDA stays available
+  but AE's DirectX display is disabled.
+- Fix: scripts/ae_prefs.sh sets `DS.DisableDirectXDisplay = true` in AE's Debug
+  Database before every start. AE then uses its non-DirectX display and keeps CUDA
+  for rendering. `AEGNUX_DISABLE_CUDA=1` is the alternative (software rendering,
+  Advanced 3D reported as unsupported).
+- Test: tests/run_ae_viewer_test.sh (red solid with Invert must show cyan) passes
+  with CUDA on and off, and fails with `AEGNUX_DIRECTX_DISPLAY=1`.
+- Effect output was checked with Invert and a solid. Other effects were not checked
+  one by one.
 
-## Open: After Effects composition viewer stays blank
+## Open: Advanced 3D does not render on the GPU
 
-- Symptom: after creating a composition and a solid, the Composition panel shows only
-  the viewer background. Panels and the timeline update normally.
-- Checked and not the cause:
-  - The DXVK present path (fixed in patch 17; the viewer still does not present).
-  - OpenGL: a Wine WGL test with a GL 3.3 core context, GLSL compile and link, a solid
-    draw and texture sampling produces the expected pixels.
-  - The renderer preference: GF.DisableAcceleratedRenderer=true (CPU) shows the same
-    empty viewer.
-  - Blocking windows: the X11 window list shows no modal dialog.
-- Observed during AE runs: AE creates vkd3d-proton DXGI swapchains, but during the run
-  it makes no vkAcquireNextImageKHR or vkQueuePresentKHR calls and no wglSwapBuffers
-  calls. It issues 26 vkQueueSubmit2 calls in total. Some threads loop on
-  vkWaitSemaphores(UINT64_MAX) and others wait with WaitForMultipleObjects(INFINITE).
-- A minimal D3D12 DXGI test (frame-latency waitable object, clear, Present) presents
-  60 frames on this stack, so the stall depends on something specific to AE.
-- Next steps: find the NT object the render thread waits on (Wine server wait
-  tracing), and check whether AE's swapchain relies on a feature dzn does not expose
-  (VK_KHR_present_id, VK_KHR_present_wait, VK_EXT_swapchain_maintenance1).
+- With CUDA available, AE lists Advanced 3D, keeps it as the comp renderer and shows
+  3D layers correctly in the panel. During such a render vkd3d-proton receives
+  almost no work, and the panel's renderer menu shows Classic 3D, so the
+  Direct3D 12 renderer is not doing the work.
+- With CUDA hidden, AE reports "Advanced 3D is not supported by the current
+  hardware".
+- Likely cause: Advanced 3D depends on the same CUDA and Direct3D 12 resource
+  sharing that the CUDA bridge does not support. Supporting it would need external
+  memory and semaphore interop between the CUDA bridge and vkd3d-proton.
+
+## Not a dzn issue: D3D11 clear-only frames present black
+
+- A D3D11 swapchain test that only clears the backbuffer and presents shows black,
+  with dzn and equally with lavapipe. A staging copy and Map of the backbuffer makes
+  the presents correct. This is DXVK behaviour, not a driver bug. The regression
+  test keeps the copy for this reason. Applications that draw are not affected.
+
+## AE tips and the Home screen reappear in test runs
+
+- AE saves its preferences only when it quits normally. Test scripts stop AE with
+  `wineserver -k`, so first-run tips ("Properties Panel", "Review workspace") come
+  back in every such session. Quit AE normally to keep their state.
+
+## Untested platforms
+
+- Native Linux hosts and distributions other than Ubuntu 24.04: the scripts detect
+  them (no dzn, host Vulkan and GL drivers, distribution-specific install hints in
+  doctor.sh), but nothing was run there.
