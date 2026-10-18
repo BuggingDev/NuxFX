@@ -24,6 +24,13 @@ aegnux_env() {
     export VK_ICD_FILENAMES="$DZN_PREFIX/share/vulkan/icd.d/dzn_icd.x86_64.json"
     export VK_LAYER_PATH="$AEGNUX_LAYER_DIR"
     export VK_LOADER_LAYERS_ENABLE=VK_LAYER_AEGNUX_apiversion
-    export WINEDLLOVERRIDES="mscoree,mshtml="
+    export WINEDLLOVERRIDES="mscoree,mshtml=${AEGNUX_EXTRA_OVERRIDES:+;$AEGNUX_EXTRA_OVERRIDES}"
     export WINEDEBUG=err+module,err+d3d,err+dxgi,err+vulkan,warn+d3d,err+seh
+    # Under WSL, OpenGL must go through Mesa's D3D12 Gallium driver; without it
+    # the UI and viewers fall back to llvmpipe (CPU). Native hosts keep their GL.
+    if is_wsl; then export GALLIUM_DRIVER=d3d12; fi
+}
+
+is_wsl() {
+    grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null || [ -d /usr/lib/wsl ]
 }
