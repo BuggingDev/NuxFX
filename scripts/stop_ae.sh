@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 NuxFX contributors
 # Stops After Effects and the wineserver of the aegnux prefix.
 # The server must be stopped with WINEPREFIX set, or it keeps rewriting user.reg.
 set -u

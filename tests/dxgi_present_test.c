@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 NuxFX contributors
 // Regression check for the dzn VIEWPORT_WITH_COUNT / SCISSOR_WITH_COUNT fix (patch 17).
 // A D3D11 DXGI swapchain window must show the backbuffer colour (red) after Present.
 // Build and run with tests/run_dxgi_present_test.sh.

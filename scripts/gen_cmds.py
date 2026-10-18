@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 NuxFX contributors
 """Writes the audit list used by dzn_audit: one "EXTENSION vkCommand" line per
 device command that dzn advertises (core commands are listed as CORE_1_x).
 

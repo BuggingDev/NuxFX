@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 NuxFX contributors
 # Shared settings for the aegnux scripts.
 #
 # Each value is taken from the environment if it is set there, otherwise from the

@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright (C) 2026 NuxFX contributors */
 /* Capture one X11 window (by id) to a PPM file. Only the given window is read. */
 #include <stdio.h>
 #include <stdlib.h>

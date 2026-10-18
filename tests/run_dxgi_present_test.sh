@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 NuxFX contributors
 # Regression check for patch 17 (dzn VIEWPORT_WITH_COUNT / SCISSOR_WITH_COUNT).
 # Builds a D3D11 swapchain test, runs it under Wine with the aegnux environment,
 # captures only that window, and fails unless the centre pixel is red.

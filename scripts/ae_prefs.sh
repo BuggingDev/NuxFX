@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 NuxFX contributors
 # Applies the After Effects preferences this setup needs, in every AE preferences
 # folder of the prefix and in the folder of the installed version (so the first
 # start is covered too). Idempotent; launch_ae.sh runs it before each start.

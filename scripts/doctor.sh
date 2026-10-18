@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 NuxFX contributors
 # Checks the host, the Wine prefix and the After Effects setup, and prints what is
 # missing with an install hint for this distribution. Read-only: changes nothing.
 #

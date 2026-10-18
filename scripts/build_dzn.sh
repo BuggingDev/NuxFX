@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 NuxFX contributors
 # Build Mesa 25.2.8 Dozen (dzn) with the aegnux patch series and install it.
 #
 #   MESA_SRC      unpacked Mesa 25.2.8 tree (default $HOME/src/mesa-25.2.8)

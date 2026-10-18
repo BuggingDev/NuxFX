@@ -1,0 +1,77 @@
+NuxFX
+Copyright (C) 2026 NuxFX contributors
+
+NuxFX is free software: you can redistribute it and/or modify it under the terms of
+the GNU General Public License as published by the Free Software Foundation, either
+version 3 of the License, or (at your option) any later version. See LICENSE for the
+full text. The scripts, tests, tools and documentation are GPL-3.0-or-later.
+
+Third-party material
+====================
+
+patches/ (Mesa 25.2.8)
+----------------------
+
+The patches in patches/ change source files of the Mesa 3D Graphics Library
+(https://mesa3d.org), version 25.2.8. Mesa is licensed under the MIT license. The
+changed files carry copyright notices of the Mesa contributors and, for the dzn driver
+(src/microsoft/vulkan), "Copyright © Microsoft Corporation". The MIT license requires
+its notice to be kept with copies of the software. The notice follows, copied from
+licenses/MIT in the Mesa 25.2.8 tree:
+
+-----
+Valid-License-Identifier: MIT
+SPDX-URL: https://spdx.org/licenses/MIT.html
+Usage-Guide:
+  To use the MIT License put the following SPDX tag/value pair into a
+  comment according to the placement guidelines in the licensing rules
+  documentation:
+    SPDX-License-Identifier: MIT
+License-Text:
+
+MIT License
+
+Copyright (c) <year> <copyright holders>
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the "Software"),
+to deal in the Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+-----
+
+The patches are distributed under GPL-3.0-or-later. The MIT license permits this, since
+MIT-licensed code may be included in a GPL-3.0 work. Mesa accepts contributions only
+under its own license (MIT), so these patches must be relicensed under MIT before they
+can be sent upstream to Mesa.
+
+Other components
+----------------
+
+NuxFX does not contain Wine, the Wine TkG runner, DXVK, vkd3d-proton, nvidia-libs, the
+Mesa release tarball or any Adobe software. These keep their own licenses. Their
+upstream projects:
+
+- Wine TkG:      https://github.com/Frogging-Family/wine-tkg-git
+- DXVK:          https://github.com/doitsujin/dxvk
+- vkd3d-proton:  https://github.com/HansKristian-Work/vkd3d-proton
+- nvidia-libs:   https://github.com/SveSop/nvidia-libs
+- Mesa:          https://mesa3d.org
+
+Trademarks
+----------
+
+Adobe and After Effects are trademarks of Adobe. Windows is a trademark of Microsoft.
+NVIDIA and CUDA are trademarks of NVIDIA. NuxFX is not affiliated with these companies.

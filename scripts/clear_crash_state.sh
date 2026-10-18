@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 NuxFX contributors
 # Clears AE's previous-crash state so that the "Crash Repair Options" dialog does
 # not block startup. Run before every launch (launch_ae.sh does this). Covers every
 # After Effects and GPUSniffer version found in the prefix.

@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 NuxFX contributors
 # Launches After Effects 2024 under Wine with the dzn ICD and the apiVersion layer.
 #
 #   launch_ae.sh [SECONDS]   stop AE after SECONDS (default 0: no limit)

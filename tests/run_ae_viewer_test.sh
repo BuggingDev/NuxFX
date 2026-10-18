@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 NuxFX contributors
 # End-to-end check of the Composition panel. Starts After Effects with a temporary
 # startup script that creates a comp with a red solid and an Invert effect and opens
 # it, captures the screen and passes if the panel shows the inverted (cyan) solid.

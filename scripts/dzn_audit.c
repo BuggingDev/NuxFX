@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright (C) 2026 NuxFX contributors */
 /* dzn_audit: check that every advertised device command resolves to a function.
  *
  * usage: dzn_audit AUDIT_LIST     (AUDIT_LIST lines: "EXTENSION vkCommandName")
