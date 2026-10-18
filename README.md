@@ -1,5 +1,7 @@
 # NuxFX
 
+> **Special thanks:** [@VulpesNoct1s](https://github.com/VulpesNoct1s) (Yakup ÜNAL).
+
 Run Adobe After Effects 2024 on Linux. NuxFX holds the patches and scripts for a Wine
 setup in which the GPU is reached through Mesa's Dozen (dzn) Vulkan driver, DXVK and
 vkd3d-proton. CUDA goes through a bridge inside the Wine prefix.
