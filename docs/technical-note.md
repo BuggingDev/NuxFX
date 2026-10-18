@@ -26,7 +26,7 @@ The faulting instruction was in Mesa's `ralloc.c` (`unsafe_free`), inside
    ```
    RALLOC-VIOLATION: ralloc_free of a freed block (double free) ... size=72
      violation : dzn_meta_blits_finish <- dzn_device_destroy <- dzn_device_create
-     allocated : _mesa_hash_table_create_u32_keys <- dzn_meta_blits_init <- dzn_meta_init
+     allocated : _mesa_hash_table_create_u32_keys <- dzn_meta_init (dzn_meta_blits_init inlined)
      freed     : dzn_meta_blits_finish <- dzn_meta_init (error path)
    ```
 
