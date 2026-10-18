@@ -1,0 +1,149 @@
+From: aegnux-contributor <contributor@example.invalid>
+Date: Sun, 18 Oct 2026 07:30:00 +0300
+Subject: [PATCH 17/17] dzn: implement VK_DYNAMIC_STATE_VIEWPORT_WITH_COUNT and SCISSOR_WITH_COUNT
+
+Vulkan 1.3 core (and DXVK, which uses it for its present blit) sets viewports
+and scissors through vkCmdSetViewportWithCount and vkCmdSetScissorWithCount
+with pipelines that list VK_DYNAMIC_STATE_VIEWPORT_WITH_COUNT and
+VK_DYNAMIC_STATE_SCISSOR_WITH_COUNT. dzn only recognised the non-count dynamic
+states, so such a pipeline was treated as static: its viewport and scissor
+were taken from pViewportState, which DXVK leaves empty. The runtime's
+vk_common_CmdSetViewportWithCount only updates the common dynamic graphics
+state, which dzn never reads, so the D3D12 viewport stayed empty and nothing
+was drawn. The DXVK present blit then wrote black into the swapchain, which
+made Direct3D 11 swapchains under dzn show black windows.
+
+Track the counts in the command buffer state, mark pipelines with the
+count-variant dynamic states, and implement the two entry points on top of
+dzn_CmdSetViewport and dzn_CmdSetScissor. Draws use the command-provided count
+for these pipelines and keep the static count otherwise.
+
+Verified under WSL2 Ubuntu 24.04 with Mesa 25.2.8 dzn and DXVK 3.0.1: a
+DXVK-equivalent present replica that previously read back black now produces
+the expected pixels, and D3D11 swapchain test windows show their backbuffer
+color (red and green) instead of black.
+--- a/src/microsoft/vulkan/dzn_private.h
++++ b/src/microsoft/vulkan/dzn_private.h
+@@ -633,6 +633,8 @@
+    } blend;
+    D3D12_VIEWPORT viewports[MAX_VP];
+    D3D12_RECT scissors[MAX_SCISSOR];
++   uint32_t viewport_count;
++   uint32_t scissor_count;
+    struct {
+       struct dzn_cmd_buffer_push_constant_state gfx, compute;
+    } push_constant;
+@@ -966,12 +968,14 @@
+    struct {
+       unsigned count;
+       bool dynamic;
++      bool dynamic_count;
+       D3D12_VIEWPORT desc[MAX_VP];
+    } vp;
+ 
+    struct {
+       unsigned count;
+       bool dynamic;
++      bool dynamic_count;
+       D3D12_RECT desc[MAX_SCISSOR];
+    } scissor;
+ 
+--- a/src/microsoft/vulkan/dzn_pipeline.c
++++ b/src/microsoft/vulkan/dzn_pipeline.c
+@@ -1913,9 +1913,17 @@
+          case VK_DYNAMIC_STATE_VIEWPORT:
+             pipeline->vp.dynamic = true;
+             break;
++         case VK_DYNAMIC_STATE_VIEWPORT_WITH_COUNT:
++            pipeline->vp.dynamic = true;
++            pipeline->vp.dynamic_count = true;
++            break;
+          case VK_DYNAMIC_STATE_SCISSOR:
+             pipeline->scissor.dynamic = true;
+             break;
++         case VK_DYNAMIC_STATE_SCISSOR_WITH_COUNT:
++            pipeline->scissor.dynamic = true;
++            pipeline->scissor.dynamic_count = true;
++            break;
+          case VK_DYNAMIC_STATE_STENCIL_REFERENCE:
+             pipeline->zsa.stencil_test.dynamic_ref = true;
+             break;
+--- a/src/microsoft/vulkan/dzn_cmd_buffer.c
++++ b/src/microsoft/vulkan/dzn_cmd_buffer.c
+@@ -3460,11 +3460,13 @@
+    const struct dzn_graphics_pipeline *pipeline =
+       (const struct dzn_graphics_pipeline *)cmdbuf->state.pipeline;
+ 
+-   if (!(cmdbuf->state.dirty & DZN_CMD_DIRTY_VIEWPORTS) ||
+-       !pipeline->vp.count)
++   uint32_t count = pipeline->vp.dynamic_count ?
++                    cmdbuf->state.viewport_count : pipeline->vp.count;
++
++   if (!(cmdbuf->state.dirty & DZN_CMD_DIRTY_VIEWPORTS) || !count)
+       return;
+ 
+-   ID3D12GraphicsCommandList1_RSSetViewports(cmdbuf->cmdlist, pipeline->vp.count, cmdbuf->state.viewports);
++   ID3D12GraphicsCommandList1_RSSetViewports(cmdbuf->cmdlist, count, cmdbuf->state.viewports);
+ }
+ 
+ static void
+@@ -3476,7 +3478,10 @@
+    if (!(cmdbuf->state.dirty & DZN_CMD_DIRTY_SCISSORS))
+       return;
+ 
+-   if (!pipeline->scissor.count) {
++   uint32_t count = pipeline->scissor.dynamic_count ?
++                    cmdbuf->state.scissor_count : pipeline->scissor.count;
++
++   if (!count) {
+       /* Apply a scissor delimiting the render area. */
+       ID3D12GraphicsCommandList1_RSSetScissorRects(cmdbuf->cmdlist, 1, &cmdbuf->state.render.area);
+       return;
+@@ -3484,15 +3489,15 @@
+ 
+    D3D12_RECT scissors[MAX_SCISSOR];
+ 
+-   memcpy(scissors, cmdbuf->state.scissors, sizeof(D3D12_RECT) * pipeline->scissor.count);
+-   for (uint32_t i = 0; i < pipeline->scissor.count; i++) {
++   memcpy(scissors, cmdbuf->state.scissors, sizeof(D3D12_RECT) * count);
++   for (uint32_t i = 0; i < count; i++) {
+       scissors[i].left = MAX2(scissors[i].left, cmdbuf->state.render.area.left);
+       scissors[i].top = MAX2(scissors[i].top, cmdbuf->state.render.area.top);
+       scissors[i].right = MIN2(scissors[i].right, cmdbuf->state.render.area.right);
+       scissors[i].bottom = MIN2(scissors[i].bottom, cmdbuf->state.render.area.bottom);
+    }
+ 
+-   ID3D12GraphicsCommandList1_RSSetScissorRects(cmdbuf->cmdlist, pipeline->scissor.count, scissors);
++   ID3D12GraphicsCommandList1_RSSetScissorRects(cmdbuf->cmdlist, count, scissors);
+ }
+ 
+ static void
+@@ -5266,6 +5271,28 @@
+ }
+ 
+ VKAPI_ATTR void VKAPI_CALL
++dzn_CmdSetViewportWithCount(VkCommandBuffer commandBuffer,
++                            uint32_t viewportCount,
++                            const VkViewport *pViewports)
++{
++   VK_FROM_HANDLE(dzn_cmd_buffer, cmdbuf, commandBuffer);
++
++   dzn_CmdSetViewport(commandBuffer, 0, viewportCount, pViewports);
++   cmdbuf->state.viewport_count = viewportCount;
++}
++
++VKAPI_ATTR void VKAPI_CALL
++dzn_CmdSetScissorWithCount(VkCommandBuffer commandBuffer,
++                           uint32_t scissorCount,
++                           const VkRect2D *pScissors)
++{
++   VK_FROM_HANDLE(dzn_cmd_buffer, cmdbuf, commandBuffer);
++
++   dzn_CmdSetScissor(commandBuffer, 0, scissorCount, pScissors);
++   cmdbuf->state.scissor_count = scissorCount;
++}
++
++VKAPI_ATTR void VKAPI_CALL
+ dzn_CmdPushConstants(VkCommandBuffer commandBuffer, VkPipelineLayout layout,
+                      VkShaderStageFlags stageFlags, uint32_t offset, uint32_t size,
+                      const void *pValues)
