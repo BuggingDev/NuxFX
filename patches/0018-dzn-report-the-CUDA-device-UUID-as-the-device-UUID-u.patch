@@ -1,0 +1,140 @@
+From 868ac6b2f7ff165ddb4c57ecca8d1bf8bea5c706 Mon Sep 17 00:00:00 2001
+From: aegnux-contributor <contributor@example.invalid>
+Date: Sun, 18 Oct 2026 15:09:09 +0300
+Subject: [PATCH] dzn: report the CUDA device UUID as the device UUID under WSL
+
+Under WSL, CUDA and Direct3D 12 drive the same GPU. Applications, and Wine's
+nvcuda (whose cuDeviceGetLuid looks the GPU up by Vulkan device UUID), match
+CUDA devices to Vulkan and DXGI devices by UUID. NVIDIA's own drivers report
+the CUDA UUID as the Vulkan device UUID; dzn reported a hash of the PCI IDs,
+so the lookup failed ("Failed to retrieve LUID for device 0" in nvcuda).
+
+For NVIDIA adapters, load libcuda.so.1 and take the UUID of the CUDA device
+whose LUID equals the adapter LUID or, failing that, of the only CUDA device
+with the adapter's name (WSL's libcuda reports the host LUID, which differs
+from the LUID D3D12 reports inside the VM). Otherwise the hashed UUID stays.
+DZN_DEBUG=nocudauuid disables the lookup.
+---
+ src/microsoft/vulkan/dzn_device.c  | 72 ++++++++++++++++++++++++++++++
+ src/microsoft/vulkan/dzn_private.h |  1 +
+ 2 files changed, 73 insertions(+)
+
+diff --git a/src/microsoft/vulkan/dzn_device.c b/src/microsoft/vulkan/dzn_device.c
+index 788b714..85ba27c 100644
+--- a/src/microsoft/vulkan/dzn_device.c
++++ b/src/microsoft/vulkan/dzn_device.c
+@@ -38,6 +38,10 @@
+ #include "util/disk_cache.h"
+ #include "util/macros.h"
+ #include "util/mesa-sha1.h"
++
++#ifndef _WIN32
++#include <dlfcn.h>
++#endif
+ #include "util/u_dl.h"
+ 
+ #include "util/driconf.h"
+@@ -203,6 +207,7 @@ static const struct debug_control dzn_debug_options[] = {
+    { "nobindless", DZN_DEBUG_NO_BINDLESS },
+    { "experimental", DZN_DEBUG_EXPERIMENTAL },
+    { "multiview", DZN_DEBUG_MULTIVIEW },
++   { "nocudauuid", DZN_DEBUG_NO_CUDA_UUID },
+    { NULL, 0 }
+ };
+ 
+@@ -350,6 +355,62 @@ dzn_DestroyInstance(VkInstance instance,
+    dzn_instance_destroy(dzn_instance_from_handle(instance), pAllocator);
+ }
+ 
++#ifndef _WIN32
++/* Under WSL, CUDA and D3D12 use the same GPU. Applications, and Wine's nvcuda,
++ * match CUDA devices to Vulkan and DXGI devices by UUID, so take the UUID of
++ * the CUDA device behind this adapter: the one with the adapter's LUID, or
++ * else the only one with the adapter's name (WSL's libcuda reports the host
++ * LUID, not the one D3D12 sees in the VM). Returns false if there is none.
++ */
++static bool
++dzn_physical_device_get_cuda_uuid(const struct dzn_physical_device *pdev,
++                                  uint8_t *uuid)
++{
++   typedef int (*PFN_cuInit)(unsigned int flags);
++   typedef int (*PFN_cuDeviceGetCount)(int *count);
++   typedef int (*PFN_cuDeviceGet)(int *device, int ordinal);
++   typedef int (*PFN_cuDeviceGetName)(char *name, int len, int device);
++   typedef int (*PFN_cuDeviceGetLuid)(char *luid, unsigned int *node_mask, int device);
++   typedef int (*PFN_cuDeviceGetUuid)(uint8_t *uuid, int device);
++
++   /* libcuda stays loaded: CUDA cannot be shut down once initialized. */
++   void *lib = dlopen("libcuda.so.1", RTLD_NOW | RTLD_LOCAL);
++   if (!lib)
++      return false;
++
++   PFN_cuInit cu_init = (PFN_cuInit)dlsym(lib, "cuInit");
++   PFN_cuDeviceGetCount cu_device_get_count = (PFN_cuDeviceGetCount)dlsym(lib, "cuDeviceGetCount");
++   PFN_cuDeviceGet cu_device_get = (PFN_cuDeviceGet)dlsym(lib, "cuDeviceGet");
++   PFN_cuDeviceGetName cu_device_get_name = (PFN_cuDeviceGetName)dlsym(lib, "cuDeviceGetName");
++   PFN_cuDeviceGetLuid cu_device_get_luid = (PFN_cuDeviceGetLuid)dlsym(lib, "cuDeviceGetLuid");
++   PFN_cuDeviceGetUuid cu_device_get_uuid = (PFN_cuDeviceGetUuid)dlsym(lib, "cuDeviceGetUuid");
++   int count = 0, named = -1, named_count = 0;
++
++   if (!cu_init || !cu_device_get_count || !cu_device_get || !cu_device_get_name ||
++       !cu_device_get_luid || !cu_device_get_uuid ||
++       cu_init(0) != 0 || cu_device_get_count(&count) != 0)
++      return false;
++
++   for (int i = 0; i < count; i++) {
++      char luid[VK_LUID_SIZE], name[256];
++      unsigned int node_mask;
++      int dev;
++
++      if (cu_device_get(&dev, i) != 0)
++         continue;
++      if (cu_device_get_luid(luid, &node_mask, dev) == 0 &&
++          memcmp(luid, &pdev->desc.adapter_luid, VK_LUID_SIZE) == 0)
++         return cu_device_get_uuid(uuid, dev) == 0;
++      if (cu_device_get_name(name, sizeof(name), dev) == 0 &&
++          strcmp(name, pdev->desc.description) == 0) {
++         named = dev;
++         named_count++;
++      }
++   }
++   return named_count == 1 && cu_device_get_uuid(uuid, named) == 0;
++}
++#endif
++
+ static void
+ dzn_physical_device_init_uuids(struct dzn_physical_device *pdev)
+ {
+@@ -389,6 +450,17 @@ dzn_physical_device_init_uuids(struct dzn_physical_device *pdev)
+    _mesa_sha1_update(&sha1_ctx, &pdev->desc.revision, sizeof(pdev->desc.revision));
+    _mesa_sha1_final(&sha1_ctx, sha1);
+    memcpy(pdev->device_uuid, sha1, VK_UUID_SIZE);
++
++#ifndef _WIN32
++   /* NVIDIA's own drivers report the CUDA device UUID as the device UUID. */
++   struct dzn_instance *instance =
++      container_of(pdev->vk.instance, struct dzn_instance, vk);
++   uint8_t cuda_uuid[VK_UUID_SIZE];
++   if (pdev->desc.vendor_id == 0x10de &&
++       !(instance->debug_flags & DZN_DEBUG_NO_CUDA_UUID) &&
++       dzn_physical_device_get_cuda_uuid(pdev, cuda_uuid))
++      memcpy(pdev->device_uuid, cuda_uuid, VK_UUID_SIZE);
++#endif
+ }
+ 
+ const struct vk_pipeline_cache_object_ops *const dzn_pipeline_cache_import_ops[] = {
+diff --git a/src/microsoft/vulkan/dzn_private.h b/src/microsoft/vulkan/dzn_private.h
+index abcc523..3ac6696 100644
+--- a/src/microsoft/vulkan/dzn_private.h
++++ b/src/microsoft/vulkan/dzn_private.h
+@@ -1275,6 +1275,7 @@ enum dzn_debug_flags {
+    DZN_DEBUG_NO_BINDLESS = 1 << 11,
+    DZN_DEBUG_EXPERIMENTAL = 1 << 12,
+    DZN_DEBUG_MULTIVIEW = 1 << 13,
++   DZN_DEBUG_NO_CUDA_UUID = 1 << 14,
+ };
+ 
+ struct dzn_instance {
+-- 
+2.43.0
+
