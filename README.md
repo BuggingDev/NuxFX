@@ -1,172 +1,262 @@
-# aegnux-wine-ae
+# NuxFX
 
-Patches and helper scripts to run Adobe After Effects 2024 (24.6.2) under Wine.
-Under WSL2 the GPU is reached through Mesa's Dozen (dzn) Vulkan driver on top of
-Direct3D 12; on a native Linux host the host's own Vulkan driver is used.
+Adobe After Effects 2024 on Linux, through Wine. The GPU is reached through Mesa's
+Dozen (dzn) Vulkan driver, DXVK and vkd3d-proton; CUDA goes through a bridge in the
+Wine prefix.
 
-Nothing here contains Adobe binaries. You need your own, legally obtained After
-Effects installation and a Wine runner (aegnux sets both up).
+NuxFX holds the patch series and the scripts for that setup. It contains no Adobe
+software and no Wine runner. It was developed under the name `aegnux-wine-ae`.
 
-Tested only on: Windows 11, WSL2, Ubuntu 24.04, NVIDIA RTX 4060 Ti, Wine TkG 11.12,
-DXVK 3.0.1, vkd3d-proton 3.0.1, After Effects 24.6.2. The scripts detect other
-distributions and native hosts, but those paths are untested.
+> **Experimental.** Tested on one configuration: Windows 11, WSL2, Ubuntu 24.04,
+> NVIDIA GeForce RTX 4060 Ti, After Effects 24.6.2. Advanced 3D does not work yet.
+> See [Status](#status) and [Gaps](#gaps).
 
-## Status (2026-10-18)
+## Contents
 
-| Item | Status |
-|---|---|
-| AE starts and stays up without an exception | Verified (docs/technical-note.md) |
-| Crash `vkCreateDevice Exception 0xc0000005` / malloc corruption | Fixed (patch 02) |
-| D3D12 device loss during AE start | Fixed (patch 06) |
-| Black Direct3D 11 swapchain windows | Fixed (patch 17); `tests/run_dxgi_present_test.sh` |
-| Empty Composition panel | Fixed by an AE preference that `launch_ae.sh` applies; `tests/run_ae_viewer_test.sh` |
-| GPUSniffer DirectX test | Passes (result 529) |
-| `cuDeviceGetLuid` fails in the CUDA bridge | Fixed (patch 18) |
-| Classic 3D renderer | Works (panel and render queue) |
-| Advanced 3D renderer (`ADBE Calder`) | Does not work: frames are solid magenta in the panel and in renders. See docs/known-issues.md |
-| Conformance | None. dzn prints "not a conformant Vulkan implementation" |
+- [Status](#status)
+- [How it works](#how-it-works)
+- [Requirements](#requirements)
+- [Quick start (WSL2)](#quick-start-wsl2)
+- [Updating](#updating)
+- [Configuration](#configuration)
+- [Tests](#tests)
+- [Repository layout](#repository-layout)
+- [Documentation](#documentation)
+- [Gaps](#gaps)
+- [License](#license)
 
-## What is in this repository
+## Status
 
+| Area | Status | Notes |
+|---|---|---|
+| AE starts and stays up | Works | No exception at start. See `docs/technical-note.md` |
+| Composition panel | Works | `ae_prefs.sh` turns off AE's DirectX display; test: `tests/run_ae_viewer_test.sh` |
+| Direct3D 11 swapchain windows | Works | Patch 17; test: `tests/run_dxgi_present_test.sh` |
+| Classic 3D renderer | Works | Panel and render queue (TIFF) checked with a test comp |
+| Advanced 3D renderer (`ADBE Calder`) | **Does not work** | Frames are solid magenta (255, 0, 255). AE shows no error. See below |
+| Cinema 4D renderer (`ADBE Ernst`) | **Does not work** | AE's plugin scan does not recognise `Ernst.aex`; rendering not tested |
+| Effects on the GPU | Partly | Only Invert and solids were checked |
+| CUDA | Partly | Device queries work (patch 18 fixes `cuDeviceGetLuid`). Direct3D interop is not implemented |
+| GPUSniffer DirectX test | Passes | Result 529 |
+| Vulkan conformance | Not tested | No CTS run. dzn prints "not a conformant Vulkan implementation" |
+| Native Linux hosts | Untested | The scripts detect them, nothing was run there |
+| AMD and Intel GPUs | Untested | |
+
+**Advanced 3D.** Selecting Advanced 3D (`ADBE Calder`) gives solid magenta frames in
+the panel and in renders. The cause is not found yet. AE's plugin scan does not load
+`Calder.aex` under Wine (`No loaders recognized this plugin`). Changing the feature
+level, hiding or showing the NVIDIA adapter, the DirectX display or the CUDA setting
+did not change that. Note the naming: the match name `ADBE Advanced 3d` is the
+classic renderer, Classic 3D. Details are in `docs/known-issues.md`.
+
+## How it works
+
+```mermaid
+flowchart LR
+    AE["After Effects 2024<br/>AfterFX.exe"] --> WINE["Wine runner<br/>(aegnux, TkG 11.12)"]
+    WINE -- "Direct3D 11" --> DXVK["DXVK 3.0.1"]
+    WINE -- "Direct3D 12" --> VKD3D["vkd3d-proton 3.0.1"]
+    WINE -- "CUDA" --> NVCUDA["nvcuda bridge<br/>(nvidia-libs)"]
+    DXVK --> VK["Vulkan"]
+    VKD3D --> VK
+    VK --> DZN["Mesa dzn<br/>(patches in patches/)"]
+    DZN -- "WSL2 /dev/dxg" --> D3D12["Direct3D 12 in WSL"]
+    D3D12 --> GPU["NVIDIA GPU"]
+    NVCUDA --> LIBCUDA["libcuda in WSL"]
+    LIBCUDA --> GPU
 ```
-patches/   18 patches (git format-patch) against pristine Mesa 25.2.8
-scripts/   build_dzn.sh     build and install dzn (WSL only)
-           launch_ae.sh     start AE (applies ae_prefs.sh and clear_crash_state.sh)
-           stop_ae.sh       stop AE and its wineserver
-           doctor.sh        check the host and the setup, print install hints
-           ae_prefs.sh      AE preferences this setup needs (see below)
-           common.sh        shared settings, platform detection, config file
-           gpu_sniffer_test.sh, dzn_audit.c, gen_cmds.py, apiver_layer/, tools/xcap.c
-tests/     run_dxgi_present_test.sh   D3D11 swapchain shows its backbuffer (patch 17)
-           run_ae_viewer_test.sh      Composition panel shows a rendered comp
-docs/      technical note (findings, evidence) and known issues
-```
 
-The patches are one logical change each. They apply in order with `git apply`
-to the official Mesa 25.2.8 tarball (sha256
-`097842f3e49d996868b38688db87b006f7d4541e93ce86d2f341d8b3e7be7c93`).
+- **WSL2:** dzn implements Vulkan on top of Direct3D 12. The Direct3D 12 driver is
+  reached through `/dev/dxg`. The patches in `patches/` apply to pristine Mesa 25.2.8.
+  OpenGL goes through Mesa's D3D12 Gallium driver (`GALLIUM_DRIVER=d3d12`), which the
+  scripts set under WSL.
+- **Native Linux:** the host's own Vulkan driver (RADV, ANV, NVIDIA, ...) is used and
+  dzn is not built. Untested.
 
-## Platforms
+## Requirements
 
-| Host | Vulkan | OpenGL | Notes |
-|---|---|---|---|
-| WSL2 | dzn from this repository (Vulkan on Direct3D 12) | Mesa's D3D12 Gallium driver (`GALLIUM_DRIVER=d3d12`) | Needs a WSLg-capable Windows GPU driver (`/dev/dxg`, `/usr/lib/wsl/lib/libd3d12.so`) |
-| Native Linux, any distribution | The host's Vulkan driver (RADV, ANV, NVIDIA, ...) | The host's GL driver | dzn is not built or used. Untested |
+- Windows with a GPU driver that supports GPU access in WSL (`/dev/dxg` and
+  `/usr/lib/wsl/lib/libd3d12.so`). Tested with an NVIDIA driver.
+- WSL2 with Ubuntu 24.04. Tested. The scripts detect other distributions, untested.
+- After Effects 2024, version 24.6.2, a copy you are licensed to use, in
+  `$AEGNUX_HOME/AE` (or set `AE_DIR`).
+- A Wine runner and a prefix. They come from the aegnux setup and are not part of this
+  repository. Tested with Wine TkG 11.12 and the DXVK 3.0.1 and vkd3d-proton 3.0.1 DLLs
+  in the prefix. `scripts/doctor.sh` reports whether those DLLs match the tested builds
+  (by SHA-256).
+- To build dzn: meson, ninja, a C compiler, pkg-config, git and python3-mako.
+  `scripts/doctor.sh --build` lists what is missing and prints an install hint.
+- The Mesa 25.2.8 release tarball, or an unpacked tree. The build checks the tarball's
+  SHA-256.
+- Network access during the build. Meson downloads DirectX-Headers from GitHub. Set
+  `https_proxy` if you need a proxy.
 
-`AEGNUX_VULKAN=dzn` or `AEGNUX_VULKAN=system` overrides the automatic choice.
-
-## Check your setup
+## Quick start (WSL2)
 
 ```sh
-scripts/doctor.sh           # host, display, Wine, prefix, AE, Vulkan, GL, DLL versions, CUDA
-scripts/doctor.sh --build   # also the tools build_dzn.sh needs
-```
+# 1. Check the host. Read-only.
+scripts/doctor.sh --build
 
-`doctor.sh` only reads. For anything missing it prints an install command for the
-detected distribution family (apt, dnf, pacman, zypper); the package names are
-hints. It also reports whether the DXVK / vkd3d-proton DLLs in the prefix are the
-tested builds, so that an update of those components is visible before it causes
-trouble.
-
-## Build (WSL2 only)
-
-```sh
-export MESA_TARBALL=/path/to/mesa-25.2.8.tar.xz   # or MESA_SRC=<unpacked tree>
+# 2. Build and install dzn with the patch series.
+export MESA_TARBALL=/path/to/mesa-25.2.8.tar.xz    # or MESA_SRC=/path/to/unpacked/tree
 scripts/build_dzn.sh
-```
 
-`build_dzn.sh` checks for meson, ninja, a C compiler, pkg-config, git and
-python3-mako first and prints an install hint if one is missing. It verifies the
-tarball checksum, applies the patches it has not applied yet (listed in
-`.aegnux-patches-applied` in the source tree, so updating this repository and
-rerunning the script adds new patches to an existing tree),
-configures a release build with `-Dvulkan-drivers=microsoft-experimental`, builds
-`libvulkan_dzn.so` and installs it with an ICD manifest under `$DZN_PREFIX`
-(default `$AEGNUX_HOME/dzn`). Meson fetches DirectX-Headers from GitHub during
-configure; set `https_proxy` if needed.
-
-The build lives in its own prefix, so updates of the distribution's Mesa do not
-affect it. The install locations are written to the config file (below), so the
-other scripts find the build without extra variables.
-
-## Run
-
-```sh
-scripts/launch_ae.sh        # start AE; logs in $AEGNUX_LOG_DIR/ae_<timestamp>/
-scripts/launch_ae.sh 150    # stop AE after 150 s (for testing)
+# 3. Start After Effects. Logs go to $AEGNUX_LOG_DIR/ae_<timestamp>/.
+scripts/launch_ae.sh
 scripts/stop_ae.sh
 ```
 
-Before starting AE, `launch_ae.sh` clears the previous-crash state (so the "Crash
-Repair Options" dialog does not block startup), applies `ae_prefs.sh`, and checks
-that the dzn ICD (WSL) and `AfterFX.exe` exist.
+`launch_ae.sh` clears the previous-crash state, so the Crash Repair dialog does not
+block startup. It applies `ae_prefs.sh` before every start, and it checks that the
+dzn ICD and `AfterFX.exe` exist. `scripts/launch_ae.sh 150` stops AE after 150 seconds,
+which is useful for tests.
 
-### AE preferences applied by ae_prefs.sh
+### Preferences set by `ae_prefs.sh`
 
-Applied to every AE version folder in the prefix and to the installed version (read
-from `AMT/application.xml`), so new AE versions and the first start are covered.
+The script applies these to every AE preferences folder in the prefix and to the folder
+of the installed version, read from `AMT/application.xml`.
 
 | Setting | Why | Opt out |
 |---|---|---|
-| `DS.DisableDirectXDisplay = true` (Debug Database) | With CUDA available, AE shows Composition panel frames through its DirectX display, which passes images between CUDA and Direct3D 12. Wine's CUDA bridge cannot share resources with vkd3d-proton, so that display never presents and the panel stays empty. | `AEGNUX_DIRECTX_DISPLAY=1` |
+| `DS.DisableDirectXDisplay = true` (Debug Database) | With CUDA available, AE shows Composition panel frames through its DirectX display. That display passes images between CUDA and Direct3D 12. The Wine CUDA bridge cannot share those resources, so the panel stayed empty. | `AEGNUX_DIRECTX_DISPLAY=1` |
 | `"Show Welcome Screen" = 00` (Prefs) | The HTML Home screen renders as an empty panel that covers the workspace. | `AEGNUX_HIDE_HOME_SCREEN=0` |
+
+## Updating
+
+Update this repository, then run `scripts/build_dzn.sh` again. The build records the
+patches it has applied in `.aegnux-patches-applied`, in the Mesa tree. It applies only
+the patches that are missing, so new patches go onto an existing tree. A tree built
+before the record existed is detected from the patches that reverse cleanly.
+
+The build lives in its own prefix, so the distribution's Mesa is not changed. The
+install locations go into the config file, so the other scripts find the build without
+extra variables. `doctor.sh` also reports whether the DXVK and vkd3d-proton DLLs in the
+prefix are the tested builds, so an update of those is visible before it causes trouble.
 
 ## Configuration
 
-Each setting comes from the environment, otherwise from
+Each setting comes from the environment. If it is not set there, it comes from
 `~/.config/aegnux/aegnux.conf` (plain `KEY=value` lines; `AEGNUX_CONFIG` points
-elsewhere), otherwise from the defaults in `scripts/common.sh`.
+elsewhere). If it is not there either, the default in `scripts/common.sh` is used.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `AEGNUX_HOME` | `~/.local/share/aegnux` | aegnux data folder |
+| `AEGNUX_HOME` | `~/.local/share/aegnux` | Data folder |
 | `WINE_BIN_DIR` | `$AEGNUX_HOME/runner/bin` | Wine runner |
 | `WINEPREFIX` | `$AEGNUX_HOME/wineprefix` | Wine prefix |
-| `AE_DIR` | `$AEGNUX_HOME/AE` | folder with `AfterFX.exe` |
-| `DZN_PREFIX` | `$AEGNUX_HOME/dzn` | dzn install (written by build_dzn.sh) |
+| `AE_DIR` | `$AEGNUX_HOME/AE` | Folder that contains `AfterFX.exe` |
+| `DZN_PREFIX` | `$AEGNUX_HOME/dzn` | dzn install, written by `build_dzn.sh` |
 | `AEGNUX_VULKAN` | `auto` | `dzn`, `system` or `auto` |
-| `AEGNUX_DISABLE_CUDA` | `0` | `1` hides CUDA from AE: software rendering, AE then reports Advanced 3D as unsupported |
-| `AEGNUX_DIRECTX_DISPLAY` | `0` | `1` keeps AE's DirectX display (empty panel while CUDA is used) |
+| `AEGNUX_DISABLE_CUDA` | `0` | `1` hides CUDA from AE. AE then renders in software and reports Advanced 3D as unsupported |
+| `AEGNUX_DIRECTX_DISPLAY` | `0` | `1` keeps AE's DirectX display (the panel stays empty while CUDA is used) |
 | `AEGNUX_HIDE_HOME_SCREEN` | `1` | `0` keeps AE's Home screen setting |
-| `AEGNUX_EXTRA_OVERRIDES` | empty | extra `WINEDLLOVERRIDES` entries |
+| `AEGNUX_EXTRA_OVERRIDES` | empty | Extra `WINEDLLOVERRIDES` entries |
 | `AEGNUX_WINEDEBUG` | errors only | `WINEDEBUG` for AE |
-| `AEGNUX_APIVER_LAYER` | `0` | `1` enables the optional apiVersion layer (unnecessary with patch 04) |
+| `AEGNUX_APIVER_LAYER` | `0` | `1` enables the optional apiVersion layer. Not needed with patch 04 |
 
 ## Tests
 
 ```sh
-tests/run_dxgi_present_test.sh   # needs mingw-w64 gcc, xdotool, python3
-tests/run_ae_viewer_test.sh      # needs xdotool, xwininfo, python3; uses Xvfb if installed
+tests/run_dxgi_present_test.sh   # D3D11 swapchain shows its backbuffer (patch 17)
+tests/run_ae_viewer_test.sh      # Composition panel shows a rendered comp
+scripts/gpu_sniffer_test.sh      # dzn entrypoint audit, then AE's GPUSniffer DirectX test
 ```
 
-`run_ae_viewer_test.sh` starts AE with a temporary startup script that creates a
-comp with a red solid and an Invert effect, captures the screen and passes if the
-Composition panel shows the cyan result. With Xvfb installed it runs on a private
-display, so nothing appears on the desktop and input cannot interfere. It stops any
-running AE of the prefix. With `AEGNUX_DIRECTX_DISPLAY=1` (the setup before the
-fix) it fails, as expected.
+- `run_dxgi_present_test.sh` needs `x86_64-w64-mingw32-gcc`, gcc with X11 headers,
+  xdotool and python3.
+- `run_ae_viewer_test.sh` needs xdotool, xwininfo, python3 and gcc with X11 headers. It
+  starts AE with a temporary startup script. That script creates a comp with a red solid
+  and an Invert effect, and the test passes if the Composition panel shows cyan. With
+  Xvfb installed the test runs on a private display, so nothing appears on your desktop.
+  It stops any AE of the prefix that is running. With `AEGNUX_DIRECTX_DISPLAY=1` it
+  fails, as expected.
 
-## Optional: heap validation for dzn debugging
+## Repository layout
 
-Build dzn with `-DRALLOC_DEBUG_VALIDATE=1` (or edit the default in
-`src/util/ralloc.c`) to get double-free and use-after-free reports with call
-stacks on stderr. It is off by default and slows allocation down.
+```
+patches/   18 patches (git format-patch) against pristine Mesa 25.2.8
+scripts/   build_dzn.sh          build and install dzn (WSL2)
+           launch_ae.sh          start AE (applies ae_prefs.sh and clear_crash_state.sh)
+           stop_ae.sh            stop AE and its wineserver
+           doctor.sh             read-only check of host, prefix, AE and tools
+           ae_prefs.sh           AE preferences this setup needs
+           clear_crash_state.sh  clears AE's previous-crash state
+           common.sh             shared settings, platform detection, config file
+           gpu_sniffer_test.sh   entrypoint audit, then GPUSniffer
+           dzn_audit.c, gen_cmds.py   entrypoint audit of dzn
+           apiver_layer/        optional Vulkan layer (apiVersion), off by default
+           tools/xcap.c         X11 screen capture for the tests
+tests/     run_dxgi_present_test.sh, run_ae_viewer_test.sh, dxgi_present_test.c
+docs/      technical-note.md    findings and evidence, section by section
+           known-issues.md      fixed and open issues, stubs, limitations
+```
 
-## Licenses
+## Documentation
 
-- Mesa is MIT licensed. These patches are modifications of Mesa and carry the
-  same license terms for the modified files.
-- aegnux is GPL-3.0. The scripts in this repository are written to be used with
-  aegnux. No license file has been chosen for this repository yet; choose one
-  before publishing it.
-- Adobe After Effects, Wine and the GPU drivers are not part of this repository
-  and keep their own licenses.
+- [`docs/technical-note.md`](docs/technical-note.md): how each problem was narrowed
+  down, with the evidence.
+- [`docs/known-issues.md`](docs/known-issues.md): fixed issues, open issues, stubs and
+  limitations.
 
-## Known limitations (short list; full list in docs/known-issues.md)
+## Gaps
 
-- Advanced 3D renders solid magenta frames. Classic 3D works.
-- The Composition panel uses AE's non-DirectX display while CUDA is available.
-- VK_EXT_transform_feedback is a no-op stub. Stream output does not work.
-- inlineUniformBlock and nullDescriptor are advertised because DXVK 3.x requires
-  them, but dzn does not implement them.
-- Only the configuration listed at the top was tested.
+What is missing, broken or not decided yet.
+
+**Not working**
+
+- Advanced 3D (`ADBE Calder`) renders solid magenta frames. The cause is not found.
+- The Cinema 4D renderer (`ADBE Ernst`) is not recognised by AE's plugin scan under
+  Wine. Rendering was not tested.
+
+**Not tested**
+
+- Native Linux hosts, distributions other than Ubuntu 24.04, AMD and Intel GPUs, and
+  AE versions other than 24.6.2.
+- Effects other than Invert and solids.
+- Large projects and long render sessions.
+
+**Missing or incomplete in dzn**
+
+- `VK_EXT_transform_feedback` is a no-op stub (patch 09). Stream output is dropped.
+- `inlineUniformBlock` and `nullDescriptor` are advertised (patch 15), because DXVK 3.0.1
+  needs them, but they are not implemented. Open decision: implement them or stop
+  advertising them.
+- Sparse resources are not supported. vkd3d-proton therefore stops at Direct3D 12
+  feature level 11_1.
+- The robustness features are advertised without a dedicated test.
+- No Vulkan CTS run. dzn is not a conformant Vulkan implementation.
+
+**Missing in the CUDA bridge**
+
+- Direct3D interop: `cuGraphicsD3D11RegisterResource` returns
+  `CUDA_ERROR_NOT_SUPPORTED`. Features that share images between CUDA and Direct3D are
+  affected.
+
+**Packaging and setup**
+
+- The Wine runner, the aegnux prefix, nvidia-libs (nvcuda), and the DXVK and vkd3d-proton
+  DLLs are not included. `doctor.sh` checks their versions, but the repository does not
+  download or pin them.
+- There are no instructions here for creating the runner and the prefix, and no
+  installer. After Effects is placed by hand.
+- No CI. The tests need a desktop-like X session and xdotool.
+- The code and the configuration still use the `aegnux` name: the `AEGNUX_*`
+  variables, `~/.local/share/aegnux`, `aegnux.conf`. The rename to NuxFX covers only
+  the repository and this README.
+
+**Decisions open**
+
+- **License:** none chosen. Until one is added, the code carries no reuse permission.
+  Choose one before making the repository public.
+- **Visibility:** the repository was created private.
+
+## License
+
+No license has been chosen yet, so there is no permission to reuse this code.
+
+The patches modify Mesa, which is mostly MIT-licensed. The modified Mesa files keep
+Mesa's license terms.
+
+Adobe After Effects, Wine, DXVK, vkd3d-proton, nvidia-libs and the GPU drivers are not
+part of this repository and keep their own licenses. Adobe and After Effects are
+trademarks of Adobe. This project is not affiliated with Adobe.
