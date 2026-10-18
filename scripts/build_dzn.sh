@@ -32,13 +32,29 @@ if [ ! -f "$MESA_SRC/meson.build" ]; then
     tar -xJf "$MESA_TARBALL" -C "$MESA_SRC" --strip-components=1
 fi
 
-if [ ! -f "$MESA_SRC/.aegnux-patches-applied" ]; then
-    for p in "$REPO"/patches/*.patch; do
-        echo "applying $(basename "$p")"
-        (cd "$MESA_SRC" && git apply "$p")
+# Applied patches are listed in this file, one name per line, so a newer checkout
+# applies only the patches it adds. If the file is missing or empty (an older
+# version of this script left it empty), the series is applied in order, so the
+# newest patch that reverses cleanly shows how far an existing tree got.
+APPLIED="$MESA_SRC/.aegnux-patches-applied"
+PATCHES=("$REPO"/patches/*.patch)
+if [ ! -s "$APPLIED" ]; then
+    : > "$APPLIED"
+    for ((i = ${#PATCHES[@]} - 1; i >= 0; i--)); do
+        if (cd "$MESA_SRC" && git apply --check --reverse "${PATCHES[$i]}" 2> /dev/null); then
+            for ((j = 0; j <= i; j++)); do basename "${PATCHES[$j]}"; done > "$APPLIED"
+            echo "tree already has patches up to $(basename "${PATCHES[$i]}")"
+            break
+        fi
     done
-    touch "$MESA_SRC/.aegnux-patches-applied"
 fi
+for p in "${PATCHES[@]}"; do
+    name=$(basename "$p")
+    if grep -qxF "$name" "$APPLIED"; then continue; fi
+    echo "applying $name"
+    (cd "$MESA_SRC" && git apply "$p")
+    echo "$name" >> "$APPLIED"
+done
 
 if [ ! -f "$MESA_BUILD/build.ninja" ]; then
     meson setup "$MESA_BUILD" "$MESA_SRC" \
