@@ -38,10 +38,13 @@ Status date: 2026-10-18. Patch numbers refer to `patches/`.
 
 ## Advanced 3D
 
-- The plugin loads, the renderer can be selected, and a 3D layer can be created.
-- Earlier captures showed only the panel background for every renderer. That was the
-  empty Composition panel, fixed since (see "Fixed: empty Composition panel"). The
-  current state is under "Open: Advanced 3D does not render on the GPU".
+- The renderer match names are misleading: `ADBE Advanced 3d` is Classic 3D
+  (`Required/Advanced3D.aex`, the old name of the classic renderer) and `ADBE Calder`
+  is the Advanced 3D renderer added in AE 24 (`Required/Calder.aex`). Earlier notes in
+  this repository took `ADBE Advanced 3d` for Advanced 3D, so those tests ran
+  Classic 3D.
+- Classic 3D renders correctly, in the panel and in the render queue.
+- Advanced 3D: see "Open: Advanced 3D renders solid magenta frames".
 
 ## Stability and correctness
 
@@ -59,9 +62,8 @@ Status date: 2026-10-18. Patch numbers refer to `patches/`.
   and NV extensions that dzn does not advertise, so they show as NULL and are
   expected.
 - Development logs mention `dxgi: SetBackgroundColor: Not implemented` and Wine
-  `fixme` lines. They were not investigated. The `nvcuda` LUID errors come from the
-  CUDA bridge that cannot match CUDA devices to Direct3D adapters (see "Fixed: empty
-  Composition panel").
+  `fixme` lines. They were not investigated. The `nvcuda` LUID errors are fixed by
+  patch 18 (see "Fixed: cuDeviceGetLuid in the CUDA bridge").
 
 ## Not included
 
@@ -86,8 +88,10 @@ Status date: 2026-10-18. Patch numbers refer to `patches/`.
   panel background. Panels and the timeline updated normally.
 - Cause: with CUDA available, AE shows frames through its DirectX display, which
   passes images between CUDA and Direct3D 12. The CUDA bridge in the prefix
-  (nvidia-libs, forwarding to the Linux libcuda) cannot share resources with
-  vkd3d-proton; `cuDeviceGetLuid` already fails. AE creates the vkd3d-proton
+  (nvidia-libs, forwarding to the Linux libcuda) implements no Direct3D resource
+  sharing. Its `cuDeviceGetLuid` also failed until patch 18; with that fixed the
+  DirectX display still never presents, so the LUID was not the only gap. AE creates
+  the vkd3d-proton
   swapchains for its panels but never presents to them (no vkAcquireNextImageKHR or
   vkQueuePresentKHR during a whole run).
 - Evidence: the same empty panel on lavapipe instead of dzn (so not a dzn bug); the
@@ -102,17 +106,50 @@ Status date: 2026-10-18. Patch numbers refer to `patches/`.
 - Effect output was checked with Invert and a solid. Other effects were not checked
   one by one.
 
-## Open: Advanced 3D does not render on the GPU
+## Fixed: cuDeviceGetLuid in the CUDA bridge (patch 18)
 
-- With CUDA available, AE lists Advanced 3D, keeps it as the comp renderer and shows
-  3D layers correctly in the panel. During such a render vkd3d-proton receives
-  almost no work, and the panel's renderer menu shows Classic 3D, so the
-  Direct3D 12 renderer is not doing the work.
-- With CUDA hidden, AE reports "Advanced 3D is not supported by the current
-  hardware".
-- Likely cause: Advanced 3D depends on the same CUDA and Direct3D 12 resource
-  sharing that the CUDA bridge does not support. Supporting it would need external
-  memory and semaphore interop between the CUDA bridge and vkd3d-proton.
+- Symptom: `err:nvcuda:wine_cuDeviceGetLuid Failed to retrieve LUID for device 0` in
+  every AE and GPUSniffer run.
+- Cause: nvcuda finds the adapter LUID through the GPU entry whose Vulkan device UUID
+  equals the CUDA device UUID. dzn reported a hash of the PCI IDs as device UUID.
+- Fix: for NVIDIA adapters dzn loads libcuda and reports the UUID of the CUDA device
+  behind the adapter (same LUID, or else the only CUDA device with the adapter's
+  name; WSL's libcuda reports the host LUID, which differs from the LUID D3D12
+  reports inside the VM). `DZN_DEBUG=nocudauuid` restores the hashed UUID. Cost: one
+  `cuInit` (about 30 ms) per process that enumerates dzn devices on an NVIDIA GPU.
+- Effect: nvcuda returns the same LUID as DXGI and vkd3d-proton. On its own it does
+  not make Advanced 3D or AE's DirectX display work.
+
+## Open: Advanced 3D renders solid magenta frames
+
+- Symptom: with the comp renderer set to Advanced 3D (`ADBE Calder`), the
+  Composition panel and render queue output are solid magenta (255, 0, 255), and a
+  1920x1080 frame "renders" in about 130 ms. AE shows no error. Classic 3D in the
+  same project gives the expected image. With CUDA hidden, AE reports "Advanced 3D
+  is not supported by the current hardware".
+- Advanced 3D draws with Direct3D 11 (Calder.aex imports d3d11.dll and compiles its
+  shaders with d3dcompiler_47), not Direct3D 12.
+- A D3D11 API trace of a full run (apitrace) shows AE creating two D3D11 devices on
+  the GPU at start and nothing after that: no textures, shaders or draws. The
+  Advanced 3D renderer never starts drawing.
+- Ruled out (tested one by one, still magenta):
+  - `cuDeviceGetLuid` failing: fixed by patch 18. AE's own GPU tags then report the
+    display and the CUDA device as the same adapter (with the DirectX display on).
+  - DXVK reporting the GPU as AMD (`dxgi.hideNvidiaGpu` default):
+    `DXVK_CONFIG="dxgi.hideNvidiaGpu = False"` makes AE see an NVIDIA adapter.
+  - Direct3D 12 feature level 11_1 (dzn has no sparse resources, so vkd3d-proton
+    stops at 11_1): `VKD3D_FEATURE_LEVEL=12_0` makes GPUSniffer report feature level
+    12 (result 785 instead of 529).
+  - AE's DirectX display on or off, project GPU mode CUDA or Mercury Software Only,
+    and lavapipe instead of dzn.
+- Not implemented in the CUDA bridge (nvidia-libs nvcuda): Direct3D interop.
+  `cuGraphicsD3D11RegisterResource` returns CUDA_ERROR_NOT_SUPPORTED, and
+  D3D11/D3D12 handle types are passed to the Linux libcuda unchanged. These
+  functions were not called in the traced runs, so they are not shown to be the
+  cause.
+- Not found: the condition inside AE's Advanced 3D start-up that fails. This
+  repository does not modify Adobe binaries. Untested: native Linux with NVIDIA's
+  own Vulkan driver (no dzn; DXVK and vkd3d-proton reach feature level 12_x there).
 
 ## Not a dzn issue: D3D11 clear-only frames present black
 

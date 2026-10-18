@@ -21,13 +21,15 @@ distributions and native hosts, but those paths are untested.
 | Black Direct3D 11 swapchain windows | Fixed (patch 17); `tests/run_dxgi_present_test.sh` |
 | Empty Composition panel | Fixed by an AE preference that `launch_ae.sh` applies; `tests/run_ae_viewer_test.sh` |
 | GPUSniffer DirectX test | Passes (result 529) |
-| Advanced 3D | Listed and kept as the comp renderer, 3D layers show in the panel, but GPU rendering through Direct3D 12 is not happening. See docs/known-issues.md |
+| `cuDeviceGetLuid` fails in the CUDA bridge | Fixed (patch 18) |
+| Classic 3D renderer | Works (panel and render queue) |
+| Advanced 3D renderer (`ADBE Calder`) | Does not work: frames are solid magenta in the panel and in renders. See docs/known-issues.md |
 | Conformance | None. dzn prints "not a conformant Vulkan implementation" |
 
 ## What is in this repository
 
 ```
-patches/   17 patches (git format-patch) against pristine Mesa 25.2.8
+patches/   18 patches (git format-patch) against pristine Mesa 25.2.8
 scripts/   build_dzn.sh     build and install dzn (WSL only)
            launch_ae.sh     start AE (applies ae_prefs.sh and clear_crash_state.sh)
            stop_ae.sh       stop AE and its wineserver
@@ -75,7 +77,9 @@ scripts/build_dzn.sh
 
 `build_dzn.sh` checks for meson, ninja, a C compiler, pkg-config, git and
 python3-mako first and prints an install hint if one is missing. It verifies the
-tarball checksum, applies `patches/*.patch` once (marker file in the source tree),
+tarball checksum, applies the patches it has not applied yet (listed in
+`.aegnux-patches-applied` in the source tree, so updating this repository and
+rerunning the script adds new patches to an existing tree),
 configures a release build with `-Dvulkan-drivers=microsoft-experimental`, builds
 `libvulkan_dzn.so` and installs it with an ICD manifest under `$DZN_PREFIX`
 (default `$AEGNUX_HOME/dzn`). Meson fetches DirectX-Headers from GitHub during
@@ -160,7 +164,7 @@ stacks on stderr. It is off by default and slows allocation down.
 
 ## Known limitations (short list; full list in docs/known-issues.md)
 
-- Advanced 3D does not render on the GPU (Direct3D 12) yet.
+- Advanced 3D renders solid magenta frames. Classic 3D works.
 - The Composition panel uses AE's non-DirectX display while CUDA is available.
 - VK_EXT_transform_feedback is a no-op stub. Stream output does not work.
 - inlineUniformBlock and nullDescriptor are advertised because DXVK 3.x requires

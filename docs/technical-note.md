@@ -134,20 +134,12 @@ share one pointer (how a stub group appears). It cannot identify a single
 unimplemented command that resolves to the stub. Run `gpu_sniffer_test.sh` to
 generate the list and run it.
 
-## 7. Advanced 3D (partial)
+## 7. Advanced 3D
 
-Verified, using AE's own UI and logs:
-- `Advanced3D.aex` is loaded at start ("Loading ... Advanced3D.aex", PiPL recognised).
-- Composition Settings > 3D Renderer lists Classic 3D, Advanced 3D and Cinema 4D.
-  Selecting Advanced 3D shows its description and feature lists with no error dialog.
-- The viewer toolbar then shows the Advanced renderer; a solid can be turned into a
-  3D layer (3D properties appear).
-
-Not verified:
-- Rendered output. The viewer region of AE's window looked empty in captures for
-  both Classic 3D and Advanced 3D, so the capture method could not show pixels.
-  "Save Frame As" was attempted but the output dialog did not reliably open. No
-  pixel-level result exists.
+Correction: `Advanced3D.aex` (match name `ADBE Advanced 3d`) is the Classic 3D
+renderer. The AE 24 Advanced 3D renderer is `Calder.aex` (`ADBE Calder`). The notes
+that were here described Classic 3D. Current state: section 11 and
+docs/known-issues.md, "Open: Advanced 3D renders solid magenta frames".
 
 ## 8. Debugging method used (not in the patches)
 
@@ -193,3 +185,25 @@ Tools that made this tractable: tracing Wine's Vulkan thunks (+vulkan) to count
 submits, acquires and presents per run; an A/B run on lavapipe; and running AE on a
 private Xvfb display, because input on the desktop window and first-run tips changed
 test results.
+
+## 11. Advanced 3D (October 2026)
+
+Method: a temporary startup script creates a comp with a red 3D solid rotated 40
+degrees, sets the renderer and renders one frame through the render queue to a TIFF,
+so the result does not depend on the Composition panel. Classic 3D gives the
+expected rotated solid. Advanced 3D (`ADBE Calder`) gives a solid magenta frame.
+
+1. Advanced 3D uses Direct3D 11 through DXVK, not Direct3D 12.
+2. A D3D11 trace (apitrace's wrappers plus small forwarding DLLs for
+   `D3D11CoreCreateDevice`, `D3D11On12CreateDevice` and
+   `DXGIDeclareAdapterRemovalSupport`, which the wrappers do not export and DXVK's
+   d3d10core needs) shows two D3D11 devices created at start and no D3D11 work after
+   that.
+3. AE's crash-reporter tags (written to the prefix's Temp folder) show how AE sees
+   the GPUs: with the DirectX display off, "gpu-display OpenGL(AMD)" and
+   "gpu-different-adapter true"; with the DirectX display on and DXGI reporting
+   NVIDIA, "DirectX(NVIDIA)" and "false". Advanced 3D stayed magenta in both.
+4. `cuDeviceGetLuid` failed because dzn's device UUID did not match the CUDA UUID;
+   patch 18 fixes that. Forcing Direct3D 12 feature level 12_0, unhiding the NVIDIA
+   vendor ID in DXGI, the display mode, the project GPU mode and lavapipe did not
+   change the result.
