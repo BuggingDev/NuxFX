@@ -147,9 +147,28 @@ Status date: 2026-10-18. Patch numbers refer to `patches/`.
   D3D11/D3D12 handle types are passed to the Linux libcuda unchanged. These
   functions were not called in the traced runs, so they are not shown to be the
   cause.
-- Not found: the condition inside AE's Advanced 3D start-up that fails. This
-  repository does not modify Adobe binaries. Untested: native Linux with NVIDIA's
-  own Vulkan driver (no dzn; DXVK and vkd3d-proton reach feature level 12_x there).
+- Plugin recognition: AE's plugin scan does not recognise `Calder.aex` or `Ernst.aex`
+  (the Cinema 4D renderer). A fresh scan logs "Loading from disk... No loaders
+  recognized this plugin, so the plugin is set to Ignore." in the prefix's
+  `Plugin Loading.log`. `Advanced3D.aex` (Classic 3D) and `Standard3D.aex` are
+  recognised through AE's hardcoded PiPL list instead. `Calder.aex` has the same
+  SHA-256 as the copy in the Windows AE 2024 install, and Wine loads it as a native
+  module without import errors.
+- The Ignore flag is not the failure by itself: the Windows AE 24.6 plugin cache also
+  holds `Ignore=1` for `Calder` and `Ernst`. A fresh scan gave the same result with
+  feature level 12_0, CUDA hidden, `dxgi.hideNvidiaGpu = False` and the DirectX
+  display on. AE reports Windows 10 Pro, build 19045.
+- In the traced runs no D3D11 work follows device creation (apitrace). Of the D3D
+  interop calls, only `cuD3D11GetDevice` was logged (it returns device 0). A generic
+  D3D11 test in the same prefix passes: `D3DCompile`, device creation at feature
+  level 11_1 and 10_0, a draw and a readback.
+- Not found: the code in AE that decides recognition and the on-demand load. The
+  repository does not inspect Adobe binaries. The next useful step is a comparison
+  with a working Windows run (its `Plugin Loading.log` and log during renderer
+  selection); no AE 24.6 plugin log exists on the Windows side here. Untested: native
+  Linux with NVIDIA's own Vulkan driver (no dzn; DXVK and vkd3d-proton reach feature
+  level 12_x there). lavapipe gave the same magenta, so the cause is probably above
+  the Vulkan driver.
 
 ## Not a dzn issue: D3D11 clear-only frames present black
 
