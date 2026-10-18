@@ -1,6 +1,6 @@
-From b3a8c452618edbe5ca1d09abb4651a6ff60ed496 Mon Sep 17 00:00:00 2001
+From bc670280b2683763c15e5e8500d5af987a47fa9a Mon Sep 17 00:00:00 2001
 From: aegnux-contributor <contributor@example.invalid>
-Date: Sun, 18 Oct 2026 04:51:52 +0300
+Date: Sun, 18 Oct 2026 05:04:55 +0300
 Subject: [PATCH 12/16] dzn: enable the Vulkan memory model
 
 Accept OpMemoryModel Vulkan (VulkanMemoryModel capability) in the SPIR-V to NIR

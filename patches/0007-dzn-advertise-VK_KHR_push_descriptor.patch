@@ -1,6 +1,6 @@
-From 23661c9c313f07b40c6e6ed86094ee986c89f013 Mon Sep 17 00:00:00 2001
+From 2a065b1bd453022328635e05690dd84eb2057d70 Mon Sep 17 00:00:00 2001
 From: aegnux-contributor <contributor@example.invalid>
-Date: Sun, 18 Oct 2026 04:51:52 +0300
+Date: Sun, 18 Oct 2026 05:04:54 +0300
 Subject: [PATCH 07/16] dzn: advertise VK_KHR_push_descriptor
 
 Each vkCmdPushDescriptorSet call allocates a descriptor set from a

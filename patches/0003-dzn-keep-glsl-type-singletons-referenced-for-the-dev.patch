@@ -1,6 +1,6 @@
-From b47b7e74e79afa50b1fdda479a0bb5dca9c18890 Mon Sep 17 00:00:00 2001
+From 0081a6ee9255e6a2688615e76032634f81d9b647 Mon Sep 17 00:00:00 2001
 From: aegnux-contributor <contributor@example.invalid>
-Date: Sun, 18 Oct 2026 04:51:52 +0300
+Date: Sun, 18 Oct 2026 05:04:54 +0300
 Subject: [PATCH 03/16] dzn: keep glsl type singletons referenced for the
  device lifetime
 

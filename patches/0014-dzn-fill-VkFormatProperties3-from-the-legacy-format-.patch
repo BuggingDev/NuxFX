@@ -1,6 +1,6 @@
-From bf58aac04e69bb3753d17de00b624be2b38fc73f Mon Sep 17 00:00:00 2001
+From 605235b6f31291c5230b8eae09e7bd660175c4da Mon Sep 17 00:00:00 2001
 From: aegnux-contributor <contributor@example.invalid>
-Date: Sun, 18 Oct 2026 04:51:53 +0300
+Date: Sun, 18 Oct 2026 05:04:55 +0300
 Subject: [PATCH 14/16] dzn: fill VkFormatProperties3 from the legacy format
  properties
 

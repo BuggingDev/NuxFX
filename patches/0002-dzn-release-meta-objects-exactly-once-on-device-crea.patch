@@ -1,6 +1,6 @@
-From 6aeba9165816266ec17c579220c18f04f0366b45 Mon Sep 17 00:00:00 2001
+From 10f61185efaf2287f7a8212a148d9ced27ef1c36 Mon Sep 17 00:00:00 2001
 From: aegnux-contributor <contributor@example.invalid>
-Date: Sun, 18 Oct 2026 04:51:52 +0300
+Date: Sun, 18 Oct 2026 05:04:54 +0300
 Subject: [PATCH 02/16] dzn: release meta objects exactly once on device
  creation failure
 

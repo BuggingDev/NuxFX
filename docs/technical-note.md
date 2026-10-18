@@ -46,8 +46,8 @@ The faulting instruction was in Mesa's `ralloc.c` (`unsafe_free`), inside
    count is read from a uniform block (`cb0_buf`, set 2, binding 1, member 4).
    Before the fix, the same draw had no descriptor sets bound at all. Logs showed
    zero `vkCmdBindDescriptorSets` calls, and every set pointer at the draw was NULL.
-   The shader therefore read undefined data, the loop ran for a very large count,
-   and the GPU timed out.
+   An unbound constant buffer gives an arbitrary loop count. This is inferred from
+   the shader; the count itself was not read back. The GPU then timed out.
 
 4. Why no descriptors were bound. Mesa's common runtime implements
    `vkCmdBindDescriptorSets` by calling the driver's `vkCmdBindDescriptorSets2KHR`

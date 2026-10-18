@@ -1,6 +1,6 @@
-From 9c5776fd7f19e38d7f34564139105b381e14a090 Mon Sep 17 00:00:00 2001
+From 94e4add4147aeb104d045231daa6217b70c3556f Mon Sep 17 00:00:00 2001
 From: aegnux-contributor <contributor@example.invalid>
-Date: Sun, 18 Oct 2026 04:51:52 +0300
+Date: Sun, 18 Oct 2026 05:04:55 +0300
 Subject: [PATCH 13/16] dzn: report minImageTransferGranularity 1x1x1 for copy
  queues
 

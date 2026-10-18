@@ -1,6 +1,6 @@
-From bea7d653afd637d43ea62b74397ab9eb4121003c Mon Sep 17 00:00:00 2001
+From a297eebc81d586753cd1ca7cece818e22a351f1d Mon Sep 17 00:00:00 2001
 From: aegnux-contributor <contributor@example.invalid>
-Date: Sun, 18 Oct 2026 04:51:53 +0300
+Date: Sun, 18 Oct 2026 05:04:55 +0300
 Subject: [PATCH 15/16] dzn: advertise features and extensions required by DXVK
  and AE
 
