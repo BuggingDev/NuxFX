@@ -1,7 +1,7 @@
 From a297eebc81d586753cd1ca7cece818e22a351f1d Mon Sep 17 00:00:00 2001
 From: aegnux-contributor <contributor@example.invalid>
 Date: Sun, 18 Oct 2026 05:04:55 +0300
-Subject: [PATCH 15/16] dzn: advertise features and extensions required by DXVK
+Subject: [PATCH 15/18] dzn: advertise features and extensions required by DXVK
  and AE
 
 Advertise tessellationShader, dualSrcBlend, logicOp, multiViewport,

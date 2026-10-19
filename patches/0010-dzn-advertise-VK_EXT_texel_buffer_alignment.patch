@@ -1,7 +1,7 @@
 From e50a96e098176393d26d1f125ed2b1a22ad5b28a Mon Sep 17 00:00:00 2001
 From: aegnux-contributor <contributor@example.invalid>
 Date: Sun, 18 Oct 2026 05:04:55 +0300
-Subject: [PATCH 10/16] dzn: advertise VK_EXT_texel_buffer_alignment
+Subject: [PATCH 10/18] dzn: advertise VK_EXT_texel_buffer_alignment
 
 Report 16 byte offset alignment for uniform and storage texel buffers, with
 single texel alignment, as the GPUSniffer checks require.

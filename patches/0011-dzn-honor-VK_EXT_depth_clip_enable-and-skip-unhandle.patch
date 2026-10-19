@@ -1,7 +1,7 @@
 From 4552a6dd18719227e9610dab619174c9e3322656 Mon Sep 17 00:00:00 2001
 From: aegnux-contributor <contributor@example.invalid>
 Date: Sun, 18 Oct 2026 05:04:55 +0300
-Subject: [PATCH 11/16] dzn: honor VK_EXT_depth_clip_enable and skip unhandled
+Subject: [PATCH 11/18] dzn: honor VK_EXT_depth_clip_enable and skip unhandled
  dynamic states
 
 Use VkPipelineRasterizationDepthClipStateCreateInfoEXT.depthClipEnable when the

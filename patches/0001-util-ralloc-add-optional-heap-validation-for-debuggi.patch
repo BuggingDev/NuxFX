@@ -1,7 +1,7 @@
 From 1d11d31977c4ee6f31a9f635b8472fd58306e17a Mon Sep 17 00:00:00 2001
 From: aegnux-contributor <contributor@example.invalid>
 Date: Sun, 18 Oct 2026 05:04:54 +0300
-Subject: [PATCH 01/16] util/ralloc: add optional heap validation for debugging
+Subject: [PATCH 01/18] util/ralloc: add optional heap validation for debugging
 
 Add RALLOC_DEBUG_VALIDATE, default 0. When enabled, each block records the
 call stacks of its allocation and of its free. Freed blocks stay allocated

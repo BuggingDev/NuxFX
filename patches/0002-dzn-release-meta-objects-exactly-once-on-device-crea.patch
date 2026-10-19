@@ -1,7 +1,7 @@
 From 10f61185efaf2287f7a8212a148d9ced27ef1c36 Mon Sep 17 00:00:00 2001
 From: aegnux-contributor <contributor@example.invalid>
 Date: Sun, 18 Oct 2026 05:04:54 +0300
-Subject: [PATCH 02/16] dzn: release meta objects exactly once on device
+Subject: [PATCH 02/18] dzn: release meta objects exactly once on device
  creation failure
 
 dzn_meta_blits_finish() and the indirect draw and triangle fan finish helpers

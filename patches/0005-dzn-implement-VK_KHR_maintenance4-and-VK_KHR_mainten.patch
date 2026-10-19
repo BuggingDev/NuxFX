@@ -1,7 +1,7 @@
 From 2486490b3525abeb7ea0708920b3ca8a9e0d33b0 Mon Sep 17 00:00:00 2001
 From: aegnux-contributor <contributor@example.invalid>
 Date: Sun, 18 Oct 2026 05:04:54 +0300
-Subject: [PATCH 05/16] dzn: implement VK_KHR_maintenance4 and
+Subject: [PATCH 05/18] dzn: implement VK_KHR_maintenance4 and
  VK_KHR_maintenance5 entrypoints
 
 Advertise maintenance4 and maintenance5 and provide the entrypoints that were

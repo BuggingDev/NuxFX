@@ -1,7 +1,7 @@
 From 868ac6b2f7ff165ddb4c57ecca8d1bf8bea5c706 Mon Sep 17 00:00:00 2001
 From: aegnux-contributor <contributor@example.invalid>
 Date: Sun, 18 Oct 2026 15:09:09 +0300
-Subject: [PATCH] dzn: report the CUDA device UUID as the device UUID under WSL
+Subject: [PATCH 18/18] dzn: report the CUDA device UUID as the device UUID under WSL
 
 Under WSL, CUDA and Direct3D 12 drive the same GPU. Applications, and Wine's
 nvcuda (whose cuDeviceGetLuid looks the GPU up by Vulkan device UUID), match

@@ -1,7 +1,7 @@
 From a48d45a74426f20cea7e5061444827b0aaa0e813 Mon Sep 17 00:00:00 2001
 From: aegnux-contributor <contributor@example.invalid>
 Date: Sun, 18 Oct 2026 05:04:55 +0300
-Subject: [PATCH 09/16] dzn: advertise VK_EXT_transform_feedback as no-op stubs
+Subject: [PATCH 09/18] dzn: advertise VK_EXT_transform_feedback as no-op stubs
 
 LIMITATION: stream output is not implemented. The EXT entrypoints exist and do
 nothing, and the transform feedback features and limits are reported so the

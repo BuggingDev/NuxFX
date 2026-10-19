@@ -1,7 +1,7 @@
 From 6d313361895866abe4413d4f36fdfdf46414e93a Mon Sep 17 00:00:00 2001
 From: aegnux-contributor <contributor@example.invalid>
 Date: Sun, 18 Oct 2026 05:04:54 +0300
-Subject: [PATCH 08/16] dzn: upload push constants through a root constant
+Subject: [PATCH 08/18] dzn: upload push constants through a root constant
  buffer
 
 Push constants were 32-bit root constants limited to 128 bytes. They are now
