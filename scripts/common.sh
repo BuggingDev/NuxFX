@@ -8,14 +8,22 @@
 # build_dzn.sh), otherwise from the defaults below, which follow the aegnux layout.
 
 AEGNUX_CONFIG="${AEGNUX_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/aegnux/aegnux.conf}"
+# Keys read from the config file. Other lines are ignored; doctor.sh reports them.
+AEGNUX_CONFIG_KEYS="AEGNUX_HOME AEGNUX_LAYER_DIR AEGNUX_LOG_DIR AEGNUX_TEST_DIR AEGNUX_VULKAN AEGNUX_DISABLE_CUDA AEGNUX_DIRECTX_DISPLAY AEGNUX_HIDE_HOME_SCREEN AEGNUX_EXTRA_OVERRIDES AEGNUX_WINEDEBUG AEGNUX_APIVER_LAYER WINE_BIN_DIR WINEPREFIX AE_DIR MESA_SRC MESA_BUILD DZN_PREFIX AE_VERSION"
 if [ -f "$AEGNUX_CONFIG" ]; then
-    while IFS='=' read -r _aegnux_key _aegnux_value; do
-        case "$_aegnux_key" in ''|'#'*|*[!A-Za-z0-9_]*) continue ;; esac
-        if ! declare -p "$_aegnux_key" > /dev/null 2>&1; then
-            export "$_aegnux_key=$_aegnux_value"
-        fi
+    while IFS= read -r _aegnux_line || [ -n "$_aegnux_line" ]; do
+        _aegnux_line=${_aegnux_line%$'\r'}
+        case "$_aegnux_line" in *=*) ;; *) continue ;; esac
+        _aegnux_key=${_aegnux_line%%=*}
+        _aegnux_value=${_aegnux_line#*=}
+        case " $AEGNUX_CONFIG_KEYS " in *" $_aegnux_key "*) ;; *) continue ;; esac
+        case "$_aegnux_value" in
+            \"*\") _aegnux_value=${_aegnux_value#\"}; _aegnux_value=${_aegnux_value%\"} ;;
+            \'*\') _aegnux_value=${_aegnux_value#\'}; _aegnux_value=${_aegnux_value%\'} ;;
+        esac
+        if [ -z "${!_aegnux_key+x}" ]; then export "$_aegnux_key=$_aegnux_value"; fi
     done < "$AEGNUX_CONFIG"
-    unset _aegnux_key _aegnux_value
+    unset _aegnux_line _aegnux_key _aegnux_value
 fi
 
 AEGNUX_HOME="${AEGNUX_HOME:-$HOME/.local/share/aegnux}"
@@ -77,16 +85,36 @@ aegnux_ae_pref_dirs() {
     done
 }
 
+# PIDs of this user's processes whose command line matches the pgrep pattern $1 and whose
+# environment has this prefix's WINEPREFIX. Other prefixes and other programs do not match.
+aegnux_prefix_pids() {
+    local pid
+    for pid in $(pgrep -u "$(id -u)" -f "$1" 2> /dev/null); do
+        if tr '\0' '\n' < "/proc/$pid/environ" 2> /dev/null | grep -qxF "WINEPREFIX=$WINEPREFIX"; then
+            echo "$pid"
+        fi
+    done
+}
+
 aegnux_env() {
     export PATH="$WINE_BIN_DIR:$PATH"
     export WINEPREFIX
     local overrides="mscoree,mshtml="
-    # AEGNUX_DISABLE_CUDA=1 hides CUDA from AE: software rendering, and AE then
+    # AEGNUX_DISABLE_CUDA=1: AE gets no CUDA (nvcuda and nvcuvid are disabled), and dzn does
+    # not query CUDA (DZN_DEBUG=nocudauuid, patch 18). AE then renders in software and
     # reports Advanced 3D as unsupported.
-    if [ "${AEGNUX_DISABLE_CUDA:-0}" = 1 ]; then overrides="$overrides;nvcuda,nvcuvid=d"; fi
+    if [ "${AEGNUX_DISABLE_CUDA:-0}" = 1 ]; then
+        overrides="$overrides;nvcuda,nvcuvid=d"
+        case ",${DZN_DEBUG:-}," in
+            *,nocudauuid,*) ;;
+            *) export DZN_DEBUG="${DZN_DEBUG:+$DZN_DEBUG,}nocudauuid" ;;
+        esac
+    fi
     if [ -n "${AEGNUX_EXTRA_OVERRIDES:-}" ]; then overrides="$overrides;$AEGNUX_EXTRA_OVERRIDES"; fi
+    # Overrides already set in the caller's environment come last, so they take precedence.
+    if [ -n "${WINEDLLOVERRIDES:-}" ]; then overrides="$overrides;$WINEDLLOVERRIDES"; fi
     export WINEDLLOVERRIDES="$overrides"
-    export WINEDEBUG="${AEGNUX_WINEDEBUG:-err+module,err+d3d,err+dxgi,err+vulkan,warn+d3d,err+seh}"
+    export WINEDEBUG="${WINEDEBUG:-${AEGNUX_WINEDEBUG:-err+module,err+d3d,err+dxgi,err+vulkan,warn+d3d,err+seh}}"
     if [ "$(aegnux_vulkan_mode)" = dzn ]; then
         export VK_ICD_FILENAMES="$(aegnux_dzn_icd)"
         # Optional apiVersion layer. Patch 04 made it unnecessary in all tests.

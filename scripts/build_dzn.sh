@@ -33,11 +33,21 @@ if [ ! -f "$MESA_SRC/meson.build" ]; then
     mkdir -p "$MESA_SRC"
     tar -xJf "$MESA_TARBALL" -C "$MESA_SRC" --strip-components=1
 fi
+if [ "$(cat "$MESA_SRC/VERSION" 2> /dev/null)" != "$MESA_VERSION" ]; then
+    echo "MESA_SRC is not an unpacked Mesa $MESA_VERSION tree (VERSION: $(cat "$MESA_SRC/VERSION" 2> /dev/null || echo missing))" >&2
+    exit 1
+fi
+TOP=$(git -C "$MESA_SRC" rev-parse --show-toplevel 2> /dev/null || true)
+if [ -n "$TOP" ] && [ "$TOP" != "$(cd "$MESA_SRC" && pwd -P)" ]; then
+    echo "MESA_SRC is inside another git repository ($TOP): git apply would skip the patch paths outside it. Use an unpacked tarball directory." >&2
+    exit 1
+fi
 
-# Applied patches are listed in this file, one name per line, so a newer checkout
-# applies only the patches it adds. If the file is missing or empty (an older
-# version of this script left it empty), the series is applied in order, so the
-# newest patch that reverses cleanly shows how far an existing tree got.
+# Applied patches are recorded in this file, one per line as "<sha256>  <name>". A newer
+# checkout applies only the patches it adds, and a patch that changed after it was applied is
+# an error. Lines with only a name come from an older version of this script; they are
+# trusted without a hash. If the file is missing or empty, the series is applied in order,
+# and the newest patch that reverses cleanly shows how far an existing tree got.
 APPLIED="$MESA_SRC/.aegnux-patches-applied"
 PATCHES=("$REPO"/patches/*.patch)
 if [ ! -s "$APPLIED" ]; then
@@ -52,10 +62,18 @@ if [ ! -s "$APPLIED" ]; then
 fi
 for p in "${PATCHES[@]}"; do
     name=$(basename "$p")
-    if grep -qxF "$name" "$APPLIED"; then continue; fi
+    sum=$(sha256sum "$p" | cut -d' ' -f1)
+    recorded=$(awk -v n="$name" '$2 == n { print $1; exit } $0 == n { print "-"; exit }' "$APPLIED")
+    if [ -n "$recorded" ]; then
+        if [ "$recorded" != "-" ] && [ "$recorded" != "$sum" ]; then
+            echo "$name changed after it was applied to $MESA_SRC: restore it, or use a fresh Mesa tree." >&2
+            exit 1
+        fi
+        continue
+    fi
     echo "applying $name"
     (cd "$MESA_SRC" && git apply "$p")
-    echo "$name" >> "$APPLIED"
+    echo "$sum  $name" >> "$APPLIED"
 done
 
 if [ ! -f "$MESA_BUILD/build.ninja" ]; then

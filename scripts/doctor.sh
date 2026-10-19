@@ -34,6 +34,8 @@ else
     ok "native Linux (the host's own Vulkan and OpenGL drivers are used; dzn is not needed)"
 fi
 ok "Vulkan driver mode: $MODE"
+if [ -e /dev/ntsync ]; then ok "/dev/ntsync present"; else warn "/dev/ntsync missing: Wine's NTsync is not used on this kernel"; fi
+ok "ptrace_scope: $(cat /proc/sys/kernel/yama/ptrace_scope 2> /dev/null || echo unknown) (1: a debugger can attach only to its own child processes)"
 if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
     ok "display: ${DISPLAY:-} ${WAYLAND_DISPLAY:-}"
 else
@@ -41,12 +43,19 @@ else
 fi
 
 echo "Wine and After Effects"
+if [ -f "$AEGNUX_CONFIG" ]; then
+    UNKNOWN=$(sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' "$AEGNUX_CONFIG" | while IFS= read -r k; do
+        case " $AEGNUX_CONFIG_KEYS " in *" $k "*) ;; *) echo "$k" ;; esac
+    done | tr '\n' ' ')
+    if [ -n "$UNKNOWN" ]; then warn "aegnux.conf keys that are ignored: $UNKNOWN"; else ok "aegnux.conf: all keys are used"; fi
+fi
 if [ -x "$WINE_BIN_DIR/wine" ]; then
     ok "Wine runner: $("$WINE_BIN_DIR/wine" --version 2>/dev/null) (tested: wine-11.12 TkG)"
 else
     fail "no Wine runner at $WINE_BIN_DIR (set WINE_BIN_DIR)"
 fi
 if [ -f "$WINEPREFIX/system.reg" ]; then ok "prefix: $WINEPREFIX"; else fail "no Wine prefix at $WINEPREFIX (set WINEPREFIX)"; fi
+if grep -aq '^"RelayExclude"' "$WINEPREFIX/user.reg" 2> /dev/null; then warn "the prefix has a RelayExclude list (wine.inf): relay traces hide the critical-section calls; remove it from HKCU\Software\Wine\Debug to see them"; fi
 if [ -f "$AE_DIR/AfterFX.exe" ]; then
     ok "After Effects: $AE_DIR (version ${AE_VERSION:-$(aegnux_ae_version)}; tested: 24.6)"
 else
@@ -108,7 +117,7 @@ for l in /usr/lib/wsl/lib/libcuda.so.1 $(ldconfig -p 2>/dev/null | sed -n 's/.*l
     if [ -e "$l" ]; then CUDA_LIB=$l; break; fi
 done
 if [ "${AEGNUX_DISABLE_CUDA:-0}" = 1 ]; then
-    ok "CUDA hidden from AE (AEGNUX_DISABLE_CUDA=1): software rendering, Advanced 3D unavailable"
+    ok "CUDA hidden from AE: nvcuda and nvcuvid are disabled, and launch_ae.sh sets DZN_DEBUG=nocudauuid so dzn does not query CUDA. AE renders in software; Advanced 3D is unavailable"
 elif [ -n "$CUDA_LIB" ] && [ -e "$SYS32/nvcuda.dll" ]; then
     ok "CUDA available to AE ($CUDA_LIB)"
     if [ "${AEGNUX_DIRECTX_DISPLAY:-0}" = 1 ]; then

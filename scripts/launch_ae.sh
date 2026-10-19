@@ -1,10 +1,13 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 NuxFX contributors
-# Launches After Effects 2024 under Wine with the dzn ICD and the apiVersion layer.
+# Launches After Effects 2024 under Wine with the dzn ICD. The apiVersion layer is optional
+# (AEGNUX_APIVER_LAYER=1).
 #
 #   launch_ae.sh [SECONDS]   stop AE after SECONDS (default 0: no limit)
 #
+# If After Effects is already running in this prefix, nothing is started. AEGNUX_RESTART=1
+# stops the running copy first; AE is then closed without saving.
 # Logs go to $AEGNUX_LOG_DIR/ae_<timestamp>/ (out.log, err.log, rc). The directory
 # name is also written to $AEGNUX_LOG_DIR/LATEST.
 set -u
@@ -12,8 +15,20 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$HERE/common.sh"
 SECS=${1:-0}
 
-"$HERE/stop_ae.sh" > /dev/null 2>&1
-sleep 2
+RUNNING=$(aegnux_prefix_pids 'AfterFX[.]exe' | paste -sd ' ' -)
+if [ -n "$RUNNING" ]; then
+    if [ "${AEGNUX_RESTART:-0}" = 1 ]; then
+        "$HERE/stop_ae.sh" > /dev/null 2>&1
+        sleep 2
+    else
+        echo "After Effects is already running in this prefix (pid: $RUNNING). Close it, or run again with AEGNUX_RESTART=1 to stop it." >&2
+        exit 1
+    fi
+fi
+# The server writes user.reg when it stops, which would undo the edits made by
+# clear_crash_state.sh. Stop it while no After Effects is running.
+"$WINE_BIN_DIR/wineserver" -k > /dev/null 2>&1 || true
+sleep 1
 "$HERE/clear_crash_state.sh" > /dev/null
 "$HERE/ae_prefs.sh"
 aegnux_env
