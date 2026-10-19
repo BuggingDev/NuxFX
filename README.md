@@ -36,6 +36,7 @@ Features on Ubuntu 24.04 under WSL2:
 |---|---|---|
 | Start and run After Effects 2024 (24.6.2) | Works | |
 | Composition panel | Works | `scripts/ae_prefs.sh` turns off AE's DirectX display |
+| RAM preview (space) | Does not work reliably | The playhead stops after 1 to 3 seconds on the first preview, and later previews may not move. See [Gaps](#gaps) |
 | Classic 3D renderer | Works | Panel and render queue |
 | Direct3D 11 swapchain windows | Works | Patch 17 |
 | Advanced 3D renderer (`ADBE Calder`) | Does not work | Solid magenta frames, no error. See [Gaps](#gaps) |
@@ -179,7 +180,7 @@ DirectX-Headers from GitHub during configure. Set `https_proxy` if you need a pr
 
 ### 4. Wine runner
 
-The runner used for the working setup is **Wine TkG (staging, NTsync) 11.12**. Build it
+The runner used for the working setup is **Wine TkG (staging) 11.12**. NTsync is not used: `/dev/ntsync` does not exist on the WSL2 kernel used for testing, and `doctor.sh` reports it. Build it
 with the non-makepkg script of [wine-tkg-git](https://github.com/Frogging-Family/wine-tkg-git).
 Dependencies are listed in its [wiki](https://github.com/Tk-Glitch/PKGBUILDS/wiki/wine-tkg-git).
 
@@ -313,7 +314,7 @@ If it is not there either, the default in `scripts/common.sh` is used.
 | `AE_DIR` | `$AEGNUX_HOME/AE` | Folder that contains `AfterFX.exe` |
 | `DZN_PREFIX` | `$AEGNUX_HOME/dzn` | dzn install, written by `build_dzn.sh` |
 | `AEGNUX_VULKAN` | `auto` | `dzn`, `system` or `auto` |
-| `AEGNUX_DISABLE_CUDA` | `0` | `1` hides CUDA from AE. AE then renders in software and reports Advanced 3D as unsupported |
+| `AEGNUX_DISABLE_CUDA` | `0` | `1` turns CUDA off for AE (nvcuda and nvcuvid are disabled) and sets `DZN_DEBUG=nocudauuid`, so dzn does not query CUDA. AE then renders in software and reports Advanced 3D as unsupported |
 | `AEGNUX_DIRECTX_DISPLAY` | `0` | `1` keeps AE's DirectX display (the panel stays empty while CUDA is used) |
 | `AEGNUX_HIDE_HOME_SCREEN` | `1` | `0` keeps AE's Home screen setting |
 | `AEGNUX_EXTRA_OVERRIDES` | empty | Extra `WINEDLLOVERRIDES` entries |
@@ -377,6 +378,8 @@ What is missing, broken or not decided yet.
   level, the visibility of the NVIDIA adapter, the DirectX display or CUDA did not change
   this. The cause is not found. `docs/known-issues.md` lists what was ruled out.
 - Cinema 4D renderer (`ADBE Ernst`): the same plugin-scan failure. Rendering not tested.
+- RAM preview: the playhead stops after 1 to 3 seconds of the first preview, and later previews may not move. The cause is not known. `docs/known-issues.md` has the evidence and the tests that did not change it.
+- `tests/run_ae_viewer_test.sh` checks one frame (a red solid with Invert). It does not play the comp.
 
 **Not verified**
 
@@ -391,12 +394,15 @@ What is missing, broken or not decided yet.
 **dzn**
 
 - `VK_EXT_transform_feedback` is a no-op stub (patch 09). Stream output is dropped.
-- `inlineUniformBlock` and `nullDescriptor` are advertised (patch 15), because DXVK 3.0.1
-  requires them, but dzn does not implement them. Open decision: implement them or stop
-  advertising them.
+- Patch 15 advertises 24 features and extensions in one file. None of them has been tested
+  one by one. The README says DXVK 3.0.1 needs `inlineUniformBlock` and `nullDescriptor`;
+  that was not checked again. Each flag needs a test before it stays advertised. The list
+  is in `docs/known-issues.md`.
 - There are no sparse resources, so vkd3d-proton stops at Direct3D 12 feature level 11_1.
 - The robustness features are advertised without a dedicated test.
 - No Vulkan CTS run. dzn prints "not a conformant Vulkan implementation".
+- The ICD manifest written by `build_dzn.sh` says `api_version` 1.1.318, while dzn reports
+  1.3 (patch 04). The effect of the difference was not measured.
 
 **CUDA bridge**
 

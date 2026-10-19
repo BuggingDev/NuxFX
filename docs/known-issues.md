@@ -142,6 +142,9 @@ Status date: 2026-10-18. Patch numbers refer to `patches/`.
     12 (result 785 instead of 529).
   - AE's DirectX display on or off, project GPU mode CUDA or Mercury Software Only,
     and lavapipe instead of dzn.
+  - Runs labelled "CUDA hidden" before this revision only set the nvcuda and nvcuvid
+    overrides. dzn still queried CUDA through patch 18, so those runs do not show a
+    CUDA-free result. `AEGNUX_DISABLE_CUDA=1` now also sets `DZN_DEBUG=nocudauuid`.
 - Not implemented in the CUDA bridge (nvidia-libs nvcuda): Direct3D interop.
   `cuGraphicsD3D11RegisterResource` returns CUDA_ERROR_NOT_SUPPORTED, and
   D3D11/D3D12 handle types are passed to the Linux libcuda unchanged. These
@@ -188,3 +191,56 @@ Status date: 2026-10-18. Patch numbers refer to `patches/`.
 - Native Linux hosts and distributions other than Ubuntu 24.04: the scripts detect
   them (no dzn, host Vulkan and GL drivers, distribution-specific install hints in
   doctor.sh), but nothing was run there.
+
+## Open: playback stops after the first preview
+
+- Symptom: RAM preview (space) moves the playhead for about 1 to 3 seconds of comp time and
+  then stops. Later previews in the same session may not move at all. The stop key works,
+  and AE logs `DoPreview_Complete` for every job.
+- The wait: a worker thread that `AfterFXLib.dll` creates while AE starts its audio and video
+  renderers (`AudioRendererImpl Init starting up`, about 11 seconds after start in a
+  timestamped run) waits for a critical section inside `AfterFXLib.dll` (image offset
+  `0x209F0C8`). The Wine log shows it as `wait timed out ... blocked by <main thread>`. It
+  appears in every run listed below.
+- The owner: the main thread. Right after it creates the worker (call site `AfterFXLib.dll`
+  offset `0x3DCC1C`), it enters a message loop called from `AfterFXLib.dll` (offset
+  `0x3C6F2C`). Inside that loop it processes `WM_TIMER` and `WM_PAINT` and does not release
+  the section. AE's normal loop (`dvaui.dll`, offset `0x5FE543`) runs again only at shutdown.
+- Relay logs: `wine.inf` writes a `RelayExclude` list into the prefix. It includes
+  `RtlEnterCriticalSection`, `RtlTryEnterCriticalSection` and `RtlLeaveCriticalSection`, so
+  relay logs show no critical-section calls. `doctor.sh` warns about it.
+- Stop position in seconds of comp time, first play and later plays. The wait was present in
+  every run:
+  - standard setup: 1.1 to 1.3, then no movement
+  - `dxgi.hideNvidiaGpu = False`: 1.13
+  - CUDA off (`AEGNUX_DISABLE_CUDA=1`, which also sets `DZN_DEBUG=nocudauuid`): 2.5 and 5.4;
+    2.6 and 2.6; 2.57 and 5.47
+  - Wine builtin Direct3D (`d3d10core`, `d3d11`, `d3d12` and `dxgi` loaded as builtin, checked
+    with a `loaddll` trace), no DXVK, vkd3d-proton, dzn or CUDA bridge: 2.6 and 5.5
+  - process pinned to one CPU (`taskset -c 0`): 1.03, 1.13, 1.10
+  - `mmdevapi` disabled: 1.17, 1.27, 1.17
+  - `Player.xRendererEntryRefactor=false`: 1.13
+  - `AE.UseBigMutexR=false`: 1.20, 1.27, 1.23
+  - `AE.DeadlockDetectionEnabledR=true`: 1.23, 1.30, 1.17; AE logged no lock diagnostics
+  - WinTab32 disabled: 1.17
+  - GPU renderer and DirectX display off: 2.37 and 2.33 (the first play did not move)
+  - multithreaded rendering, read-ahead, speculative rendering and blit queue off: 1.10
+- Status: the cause is not known, and what the worker waits for is not known. The patch series
+  does not trigger the wait: it is also present with builtin Direct3D, where no dzn code runs.
+
+## Open: patch 15 advertises features and extensions without tests
+
+- Patch 15 changes one file, `src/microsoft/vulkan/dzn_device.c` (24 added lines). It sets
+  these to true:
+  - features: `fullDrawIndexUint32`, `tessellationShader`, `dualSrcBlend`, `logicOp`,
+    `multiViewport`, `robustImageAccess`, `robustImageAccess2`, `robustBufferAccess2`,
+    `inlineUniformBlock`, `nullDescriptor`, `shaderDemoteToHelperInvocation`, `maintenance5`,
+    `maintenance6`, `depthClipEnable`, `transformFeedback`, `texelBufferAlignment`
+  - extensions: `KHR_pipeline_library`, `KHR_load_store_op_none`, `EXT_robustness2`,
+    `KHR_external_memory_capabilities`, `KHR_external_semaphore_capabilities`,
+    `KHR_external_fence_capabilities`
+  - the Windows external memory and semaphore extensions are set to false
+- None of these was tested one by one. Whether dzn implements each one was not checked. A
+  wrong advertisement can give wrong output or a GPU hang.
+- Next step: test each flag with DXVK 3.0.1 (AE playback and the GPUSniffer result 529), and
+  remove the ones that fail.
