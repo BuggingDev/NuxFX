@@ -146,11 +146,15 @@ if have Xvfb; then ok "Xvfb (tests run on a private display)"; else warn "Xvfb n
 
 if [ "${1:-}" = --build ]; then
     echo "Build tools (build_dzn.sh)"
-    MISSING=""
-    for t in meson ninja pkg-config git python3; do have "$t" || MISSING="$MISSING $t"; done
-    have cc || MISSING="$MISSING gcc"
-    python3 -c 'import mako' 2> /dev/null || MISSING="$MISSING python3-mako"
-    if [ -n "$MISSING" ]; then fail "missing:$MISSING ($(aegnux_pkg_hint $MISSING))"; else ok "meson, ninja, cc, pkg-config, git, python3-mako"; fi
+    MISSING=$(aegnux_build_missing)
+    if [ -n "$MISSING" ]; then
+        fail "the dzn build is missing:"
+        printf '%s\n' "$MISSING" | sed 's/^/          /'
+        echo "          $(aegnux_pkg_hint gcc git pkg-config ninja python3-mako)"
+        echo "          $(aegnux_mesa_dev_hint)"
+    else
+        ok "meson $(meson --version), ninja, cc, pkg-config, git, python3 and the Mesa libraries"
+    fi
     if [ -f "$MESA_SRC/meson.build" ]; then ok "Mesa source: $MESA_SRC"; else warn "no Mesa source at $MESA_SRC: set MESA_TARBALL to mesa-25.2.8.tar.xz"; fi
     if ! is_wsl; then warn "dzn only works under WSL; native hosts do not need build_dzn.sh"; fi
 fi

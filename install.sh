@@ -1,0 +1,446 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 NuxFX contributors
+# One-command installer: asks every question first (After Effects folder, plugin and
+# extension folders, install folder), shows the plan, then installs without further input:
+# system packages, Wine runner, dzn (WSL2), Wine prefix, DXVK, vkd3d-proton, the CUDA
+# bridge, After Effects and your plugins. Safe to run again: finished parts are skipped.
+#
+#   ./install.sh [options]
+#     -y, --yes            take every default (needs an After Effects folder it can find,
+#                          or --ae-dir)
+#     --ae-dir DIR         After Effects "Support Files" folder (the one with AfterFX.exe)
+#     --plugins DIR        folder of .aex plugins to import (repeatable)
+#     --extensions DIR     folder of CEP extensions to import (repeatable)
+#     --home DIR           install folder (default ~/.local/share/aegnux)
+#     --no-packages        do not install system packages
+#     --no-cuda            do not install the CUDA bridge
+#     --no-dzn             do not build dzn (default on native Linux)
+#     --force              redo parts that look finished
+#     --dry-run            show the plan and the commands, change nothing
+#     -h, --help           this text
+set -u
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+YES=0; DRY=0; FORCE=0; PACKAGES=1; CUDA=1; DZN=auto
+OPT_HOME=""; OPT_AE=""; PLUGIN_DIRS=(); EXT_DIRS=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -y|--yes) YES=1 ;;
+        --ae-dir) OPT_AE=${2:-}; shift ;;
+        --plugins) PLUGIN_DIRS+=("${2:-}"); shift ;;
+        --extensions) EXT_DIRS+=("${2:-}"); shift ;;
+        --home) OPT_HOME=${2:-}; shift ;;
+        --no-packages) PACKAGES=0 ;;
+        --no-cuda) CUDA=0 ;;
+        --no-dzn) DZN=0 ;;
+        --force) FORCE=1 ;;
+        --dry-run) DRY=1 ;;
+        -h|--help) sed -n '5,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
+    esac
+    shift
+done
+[ -n "$OPT_HOME" ] && export AEGNUX_HOME="$OPT_HOME"
+
+. "$HERE/scripts/common.sh"
+
+# Pinned downloads. The hashes are those of the releases everything was tested with.
+WINE_VER=11.12
+WINE_URL="https://github.com/Kron4ek/Wine-Builds/releases/download/$WINE_VER/wine-$WINE_VER-staging-tkg-amd64-wow64.tar.xz"
+WINE_SHA=5cf2bcee41ae2c926c8fade6297d5c0c3e9cbe1d1f0a77d69197d739af805e59
+DXVK_URL="https://github.com/doitsujin/dxvk/releases/download/v3.0.1/dxvk-3.0.1.tar.gz"
+DXVK_SHA=bebb6284db590535b7b005c102ebf6850c98842cff0fded9aacb74babae14c49
+VKD3D_URL="https://github.com/HansKristian-Work/vkd3d-proton/releases/download/v3.0.1/vkd3d-proton-3.0.1.tar.zst"
+VKD3D_SHA=3cf2315522af5e43605ef6d3c41dad91387040bf97199934f3f7ab76caaa2f0c
+NVLIBS_URL="https://github.com/SveSop/nvidia-libs/releases/download/v1.0.2/nvidia-libs-v1.0.2.tar.xz"
+NVLIBS_SHA=01e8bb6368d088e22d8e8f1d02497214e8db436476021725ef0c0707b7cb1738
+MESA_URL="https://archive.mesa3d.org/mesa-25.2.8.tar.xz"
+MESA_SHA=097842f3e49d996868b38688db87b006f7d4541e93ce86d2f341d8b3e7be7c93
+
+if [ -t 1 ]; then B=$'\033[1m'; G=$'\033[32m'; Y=$'\033[33m'; R=$'\033[31m'; N=$'\033[0m'; else B=""; G=""; Y=""; R=""; N=""; fi
+say()  { printf '%s\n' "$*"; }
+head1(){ printf '\n%s== %s ==%s\n' "$B" "$*" "$N"; }
+good() { printf '  %sok%s    %s\n' "$G" "$N" "$*"; }
+note() { printf '  %s!%s     %s\n' "$Y" "$N" "$*"; }
+die()  { printf '%serror:%s %s\n' "$R" "$N" "$*" >&2; exit 1; }
+have() { command -v "$1" > /dev/null 2>&1; }
+
+# ask_yn "question" default(y|n)
+ask_yn() {
+    local a
+    if [ "$YES" = 1 ]; then [ "$2" = y ]; return; fi
+    read -r -p "$1 [$( [ "$2" = y ] && echo Y/n || echo y/N )] " a || die "no terminal for questions (use --yes)"
+    case "${a:-$2}" in [yYeE]*) return 0 ;; *) return 1 ;; esac
+}
+
+# browse DEFAULT: folder dialog when zenity can show one, else nothing
+browse() {
+    if have zenity && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+        zenity --file-selection --directory --title="NuxFX: choose a folder" --filename="${1:-$HOME}/" 2> /dev/null
+    fi
+}
+
+# ask_dir "question" default: prints the chosen folder (empty = none). "b" opens a dialog.
+ask_dir() {
+    local a
+    if [ "$YES" = 1 ]; then printf '%s\n' "$2"; return; fi
+    read -r -p "$1 [${2:-none}] (b = browse) " a < /dev/tty || die "no terminal for questions (use --yes)"
+    case "$a" in
+        "") printf '%s\n' "$2" ;;
+        b|B) browse "$2" ;;
+        *) printf '%s\n' "${a/#\~/$HOME}" ;;
+    esac
+}
+
+# Windows paths seen from WSL: /mnt/c/... Native Linux has none of them.
+ae_version_of() {
+    sed -n 's/.*<Data key="ProductVersion">\([0-9][0-9.]*\).*/\1/p' "$1/AMT/application.xml" 2> /dev/null | head -n 1
+}
+
+# Normalises a path the user typed: accepts the "Support Files" folder, its parent, or a
+# Windows-style path (C:\Program Files\...).
+fix_ae_path() {
+    local p=$1
+    case "$p" in [A-Za-z]:\\*) have wslpath && p=$(wslpath -u "$p") ;; esac
+    if [ ! -f "$p/AfterFX.exe" ] && [ -f "$p/Support Files/AfterFX.exe" ]; then p="$p/Support Files"; fi
+    printf '%s\n' "$p"
+}
+
+head1 "NuxFX installer"
+if is_wsl; then
+    ENVNAME="WSL2"
+    [ "$DZN" = auto ] && DZN=1
+else
+    ENVNAME="native Linux"
+    [ "$DZN" = auto ] && DZN=0
+fi
+say "  Host:    $( . /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-Linux}" ) ($ENVNAME)"
+say "  Install: $AEGNUX_HOME"
+[ "$ENVNAME" = "native Linux" ] && note "native Linux is not verified; the host's Vulkan driver is used and dzn is skipped"
+[ "$(id -u)" = 0 ] && note "running as root: Wine would create a root-owned prefix; run this as a normal user" && die "do not run the installer as root"
+
+# ---------- questions ----------
+
+head1 "1. After Effects"
+AE_SRC=""
+if [ -n "$OPT_AE" ]; then
+    AE_SRC=$(fix_ae_path "$OPT_AE")
+elif [ -f "$AE_DIR/AfterFX.exe" ] && [ "$FORCE" = 0 ]; then
+    AE_SRC=$AE_DIR
+    good "already installed in $AE_DIR (kept; use --force to copy again)"
+else
+    CANDS=()
+    for base in /mnt/[a-z]/Program\ Files/Adobe; do
+        for d in "$base"/Adobe\ After\ Effects*/Support\ Files; do
+            [ -f "$d/AfterFX.exe" ] && CANDS+=("$d")
+        done
+    done
+    if [ ${#CANDS[@]} -gt 0 ]; then
+        say "  Found on this PC:"
+        i=1
+        for d in "${CANDS[@]}"; do
+            v=$(ae_version_of "$d")
+            say "    $i) $d  (version ${v:-unknown})"
+            i=$((i + 1))
+        done
+        say "    p) type or browse for another folder"
+        if [ "$YES" = 1 ]; then sel=1; else read -r -p "  Choose [1] " sel < /dev/tty || die "no terminal (use --yes or --ae-dir)"; fi
+        sel=${sel:-1}
+        case "$sel" in
+            [0-9]*) AE_SRC=${CANDS[$((sel - 1))]:-} ;;
+        esac
+    fi
+    while [ -z "$AE_SRC" ] || [ ! -f "$AE_SRC/AfterFX.exe" ]; do
+        [ "$YES" = 1 ] && die "no After Effects found; pass --ae-dir DIR"
+        say "  Choose the After Effects \"Support Files\" folder (it contains AfterFX.exe)."
+        say "  On Windows: C:\\Program Files\\Adobe\\Adobe After Effects 2024\\Support Files"
+        AE_SRC=$(fix_ae_path "$(ask_dir "  Folder" "")")
+    done
+fi
+[ -f "$AE_SRC/AfterFX.exe" ] || die "AfterFX.exe not found in: $AE_SRC"
+AE_V=$(ae_version_of "$AE_SRC")
+good "After Effects folder: $AE_SRC (version ${AE_V:-unknown})"
+case "$AE_V" in 24.6*) ;; *) note "only 24.6.x was tested; other versions may not start" ;; esac
+
+head1 "2. Plugins and extensions (optional)"
+say "  Where they go inside the Wine prefix:"
+PLUG_DEST="$WINEPREFIX/drive_c/Program Files/Adobe/Common/Plug-ins/7.0/MediaCore"
+CEP_DEST="$WINEPREFIX/drive_c/Program Files (x86)/Common Files/Adobe/CEP/extensions"
+CEP_USER_DEST=$(dirname "$(aegnux_ae_roaming)")/CEP/extensions
+say "    plugins (.aex)   $PLUG_DEST"
+say "    extensions (CEP) $CEP_DEST"
+say "    your extensions  $CEP_USER_DEST"
+if [ ${#PLUGIN_DIRS[@]} -eq 0 ]; then
+    for d in "/mnt/c/Program Files/Adobe/Common/Plug-ins/7.0/MediaCore"; do
+        if [ -d "$d" ] && ask_yn "  Import the plugins of your Windows install ($d)?" y; then PLUGIN_DIRS+=("$d"); fi
+    done
+fi
+if [ ${#EXT_DIRS[@]} -eq 0 ]; then
+    for d in "/mnt/c/Program Files (x86)/Common Files/Adobe/CEP/extensions"; do
+        if [ -d "$d" ] && ask_yn "  Import the CEP extensions of your Windows install ($d)?" n; then EXT_DIRS+=("$d"); fi
+    done
+fi
+if [ "$YES" = 0 ]; then
+    while :; do
+        d=$(ask_dir "  Another plugin folder (.aex), empty to continue" "")
+        [ -n "$d" ] || break
+        if [ -d "$d" ]; then PLUGIN_DIRS+=("$d"); else note "not a folder: $d"; fi
+    done
+    while :; do
+        d=$(ask_dir "  Another extension folder (CEP), empty to continue" "")
+        [ -n "$d" ] || break
+        if [ -d "$d" ]; then EXT_DIRS+=("$d"); else note "not a folder: $d"; fi
+    done
+fi
+for d in "${PLUGIN_DIRS[@]}"; do [ -d "$d" ] || die "plugin folder not found: $d"; done
+for d in "${EXT_DIRS[@]}"; do [ -d "$d" ] || die "extension folder not found: $d"; done
+
+# ---------- GPU facts ----------
+
+HAVE_CUDA=0
+for l in /usr/lib/wsl/lib/libcuda.so.1 $(ldconfig -p 2> /dev/null | sed -n 's/.*libcuda\.so\.1 .*=> //p'); do
+    [ -e "$l" ] && HAVE_CUDA=1 && break
+done
+[ "$CUDA" = 1 ] && [ "$HAVE_CUDA" = 0 ] && CUDA=0
+[ "$HAVE_CUDA" = 0 ] && note "no libcuda found: the CUDA bridge is skipped and AE renders in software (Advanced 3D unavailable)"
+
+# ---------- plan ----------
+
+head1 "Plan"
+say "  Install folder    $AEGNUX_HOME"
+say "  After Effects     $AE_SRC"
+say "  System packages   $([ "$PACKAGES" = 1 ] && echo yes || echo skipped)"
+say "  Wine runner       $WINE_VER (Wine TkG staging, checked by SHA-256)"
+say "  dzn (Mesa)        $([ "$DZN" = 1 ] && echo "build from source, takes a while" || echo skipped)"
+say "  DXVK / vkd3d      3.0.1 / 3.0.1"
+say "  CUDA bridge       $([ "$CUDA" = 1 ] && echo "nvidia-libs 1.0.2" || echo skipped)"
+say "  Plugins           ${#PLUGIN_DIRS[@]} folder(s)"
+say "  Extensions        ${#EXT_DIRS[@]} folder(s)"
+[ "$DRY" = 1 ] && { say; say "dry run: nothing changed"; exit 0; }
+ask_yn "Start the installation?" y || { say "cancelled"; exit 1; }
+
+# ---------- install ----------
+
+mkdir -p "$AEGNUX_HOME/downloads" "$AEGNUX_LOG_DIR"
+LOG="$AEGNUX_LOG_DIR/install_$(date +%Y%m%d_%H%M%S).log"
+say "  log: $LOG"
+STEP=0; TOTAL=11
+step() { STEP=$((STEP + 1)); head1 "[$STEP/$TOTAL] $*"; }
+# run DESCRIPTION CMD...: output goes to the log; on failure the tail is shown
+run() {
+    local desc=$1; shift
+    printf '  %s ... ' "$desc"
+    echo "### $desc: $*" >> "$LOG"
+    # stdin is closed so that no tool can wait for an answer, and the log is capped (a tool
+    # that loops on a prompt once wrote gigabytes); a capped tool dies of SIGPIPE.
+    "$@" < /dev/null 2>&1 | head -c 200000000 >> "$LOG"
+    if [ "${PIPESTATUS[0]}" = 0 ]; then printf '%sdone%s\n' "$G" "$N"; else
+        printf '%sFAILED%s\n' "$R" "$N"; tail -n 25 "$LOG" >&2
+        die "step failed: $desc (full log: $LOG)"
+    fi
+}
+
+# fetch URL FILE SHA256: resumes, verifies; falls back to Windows' downloader under WSL
+fetch() {
+    local url=$1 file=$2 sha=$3
+    if [ -f "$file" ] && [ "$(sha256sum "$file" | cut -c1-64)" = "$sha" ]; then good "$(basename "$file") already downloaded"; return 0; fi
+    printf '  downloading %s\n' "$(basename "$file")"
+    if ! curl -fL --retry 3 -C - -# -o "$file" "$url"; then
+        if is_wsl && have powershell.exe; then
+            note "curl failed, trying Windows' downloader"
+            rm -f "$file"
+            powershell.exe -NoProfile -Command "Invoke-WebRequest -UseBasicParsing -Uri '$url' -OutFile '$(wslpath -w "$file")'" >> "$LOG" 2>&1 || true
+        fi
+    fi
+    [ -f "$file" ] || die "download failed: $url"
+    [ "$(sha256sum "$file" | cut -c1-64)" = "$sha" ] || { rm -f "$file"; die "SHA-256 mismatch for $(basename "$file"); removed it"; }
+    good "$(basename "$file") verified"
+}
+
+DL="$AEGNUX_HOME/downloads"
+# The wineserver writes the registry files when it exits (a few seconds after its last
+# client). The vkd3d-proton installer looks for system.reg, so wait for that.
+settle() { run "waiting for the wineserver" "$WINE_BIN_DIR/wineserver" -w; }
+
+step "System packages"
+if [ "$PACKAGES" = 1 ]; then
+    BASE=(git curl xz zstd cabextract winetricks pkg-config)
+    [ "$DZN" = 1 ] && BASE+=(gcc ninja python3-mako pipx)
+    CMD=$(aegnux_pkg_hint "${BASE[@]}")
+    MISSING_ANY=0
+    for t in git curl xz zstd cabextract winetricks; do have "$t" || MISSING_ANY=1; done
+    if [ "$DZN" = 1 ] && [ -n "$(aegnux_build_missing | grep -v '^meson')" ]; then MISSING_ANY=1; fi
+    if [ "$MISSING_ANY" = 1 ]; then
+        say "  needs: $CMD"
+        [ "$DZN" = 1 ] && say "         $(aegnux_mesa_dev_hint)"
+        if ask_yn "  Run these with sudo?" y; then
+            run "installing base packages" bash -c "$CMD"
+            [ "$DZN" = 1 ] && run "installing Mesa build libraries" bash -c "$(aegnux_mesa_dev_hint)"
+        else
+            note "skipped; the steps below may fail"
+        fi
+    else
+        good "everything needed is installed"
+    fi
+else
+    note "skipped (--no-packages)"
+fi
+if [ "$DZN" = 1 ] && [ -n "$(aegnux_build_missing | grep '^meson')" ]; then
+    if have pipx; then
+        run "installing meson with pipx" pipx install meson
+        export PATH="$HOME/.local/bin:$PATH"
+    else
+        note "meson 1.4 or newer is missing and pipx is not installed; build_dzn.sh will stop and say so"
+    fi
+fi
+
+step "Wine runner"
+if [ -x "$WINE_BIN_DIR/wine" ] && [ "$FORCE" = 0 ]; then
+    good "found: $("$WINE_BIN_DIR/wine" --version 2> /dev/null)"
+else
+    fetch "$WINE_URL" "$DL/wine-$WINE_VER.tar.xz" "$WINE_SHA"
+    mkdir -p "$AEGNUX_HOME/runner"
+    run "unpacking the runner" tar -xJf "$DL/wine-$WINE_VER.tar.xz" -C "$AEGNUX_HOME/runner" --strip-components=1
+    [ -x "$WINE_BIN_DIR/wine" ] || die "the runner has no bin/wine in $WINE_BIN_DIR"
+fi
+# vkd3d-proton's installer and winetricks ask which Wine to use when "wine" and "wine64"
+# resolve to different folders (a distribution's own wine64 is enough to trigger it).
+[ -e "$WINE_BIN_DIR/wine64" ] || ln -s wine "$WINE_BIN_DIR/wine64"
+
+step "Vulkan driver (dzn)"
+if [ "$DZN" = 1 ]; then
+    if [ -f "$(aegnux_dzn_icd)" ] && [ "$FORCE" = 0 ]; then
+        good "found: $(aegnux_dzn_icd)"
+    else
+        fetch "$MESA_URL" "$DL/mesa-25.2.8.tar.xz" "$MESA_SHA"
+        export MESA_SRC="$AEGNUX_HOME/src/mesa-25.2.8" MESA_BUILD="$AEGNUX_HOME/src/mesa-25.2.8/build" MESA_TARBALL="$DL/mesa-25.2.8.tar.xz"
+        say "  building Mesa (several minutes; progress is in the log)"
+        run "building dzn" "$HERE/scripts/build_dzn.sh"
+    fi
+else
+    good "not needed here"
+fi
+
+# keep the locations for the other scripts
+mkdir -p "$(dirname "$AEGNUX_CONFIG")"
+touch "$AEGNUX_CONFIG"
+for kv in "AEGNUX_HOME=$AEGNUX_HOME" "AE_DIR=$AE_DIR" "WINE_BIN_DIR=$WINE_BIN_DIR" "WINEPREFIX=$WINEPREFIX"; do
+    sed -i "/^${kv%%=*}=/d" "$AEGNUX_CONFIG"
+    printf '%s\n' "$kv" >> "$AEGNUX_CONFIG"
+done
+
+aegnux_env
+SYS32="$WINEPREFIX/drive_c/windows/system32"
+SYS64="$WINEPREFIX/drive_c/windows/syswow64"
+
+step "Wine prefix"
+if [ -f "$WINEPREFIX/system.reg" ] && [ "$FORCE" = 0 ]; then
+    good "found: $WINEPREFIX"
+else
+    mkdir -p "$WINEPREFIX"
+    run "creating the prefix" wineboot -i
+    run "setting Windows 10" wine reg add 'HKCU\Software\Wine' /v Version /d win10 /f
+    settle
+fi
+
+step "Visual C++ runtime and d3dcompiler"
+# Wine ships builtin copies of these DLLs, so the files prove nothing; winetricks keeps a log.
+if grep -qx vcrun2022 "$WINEPREFIX/winetricks.log" 2> /dev/null \
+   && grep -qx d3dcompiler_47 "$WINEPREFIX/winetricks.log" 2> /dev/null && [ "$FORCE" = 0 ]; then
+    good "found"
+else
+    run "winetricks vcrun2022 d3dcompiler_47 (slow)" winetricks -q vcrun2022 d3dcompiler_47
+    settle
+fi
+
+step "DXVK and vkd3d-proton"
+if [ -f "$SYS32/dxgi.dll" ] && ! grep -aq "Wine builtin DLL" "$SYS32/dxgi.dll" \
+   && [ -f "$SYS32/d3d12.dll" ] && ! grep -aq "Wine builtin DLL" "$SYS32/d3d12.dll" && [ "$FORCE" = 0 ]; then
+    good "found"
+else
+    fetch "$DXVK_URL" "$DL/dxvk-3.0.1.tar.gz" "$DXVK_SHA"
+    fetch "$VKD3D_URL" "$DL/vkd3d-proton-3.0.1.tar.zst" "$VKD3D_SHA"
+    run "unpacking DXVK" tar -xzf "$DL/dxvk-3.0.1.tar.gz" -C "$DL"
+    for dll in d3d9 d3d10core d3d11 dxgi; do
+        cp "$DL/dxvk-3.0.1/x64/$dll.dll" "$SYS32/"
+        cp "$DL/dxvk-3.0.1/x32/$dll.dll" "$SYS64/"
+        run "override $dll" wine reg add 'HKCU\Software\Wine\DllOverrides' /v "$dll" /d "native,builtin" /f
+    done
+    rm -rf "$DL/vkd3d-proton-3.0.1"
+    run "unpacking vkd3d-proton" tar --zstd -xf "$DL/vkd3d-proton-3.0.1.tar.zst" -C "$DL"
+    settle
+    run "installing vkd3d-proton" bash -c "cd '$DL/vkd3d-proton-3.0.1' && ./setup_vkd3d_proton.sh install"
+    settle
+fi
+
+step "CUDA bridge"
+if [ "$CUDA" = 1 ]; then
+    if [ -f "$SYS32/nvcuda.dll" ] && [ "$FORCE" = 0 ]; then
+        good "found"
+    else
+        fetch "$NVLIBS_URL" "$DL/nvidia-libs-v1.0.2.tar.xz" "$NVLIBS_SHA"
+        mkdir -p "$WINEPREFIX/nvidia-libs"
+        run "unpacking nvidia-libs" tar -xJf "$DL/nvidia-libs-v1.0.2.tar.xz" -C "$WINEPREFIX/nvidia-libs"
+        run "installing nvidia-libs" "$WINEPREFIX/nvidia-libs/nvidia-libs-v1.0.2/setup_nvlibs.sh" install
+        settle
+    fi
+else
+    good "skipped"
+fi
+
+step "After Effects files"
+if [ "$AE_SRC" = "$AE_DIR" ] || { [ -f "$AE_DIR/AfterFX.exe" ] && [ "$FORCE" = 0 ]; }; then
+    good "already in $AE_DIR"
+else
+    SZ=$(du -sh "$AE_SRC" 2> /dev/null | cut -f1)
+    mkdir -p "$AE_DIR"
+    if have rsync; then
+        run "copying ${SZ:-?} to $AE_DIR" rsync -a "$AE_SRC/" "$AE_DIR/"
+    else
+        run "copying ${SZ:-?} to $AE_DIR" cp -a "$AE_SRC/." "$AE_DIR/"
+    fi
+fi
+if [ -f "$AE_DIR/CEPHtmlEngine/d3dcompiler_47.dll" ]; then
+    run "Adobe's d3dcompiler_47 for Advanced 3D" cp "$AE_DIR/CEPHtmlEngine/d3dcompiler_47.dll" "$SYS32/d3dcompiler_47.dll"
+else
+    note "CEPHtmlEngine/d3dcompiler_47.dll not found: Advanced 3D needs it"
+fi
+
+step "Plugins and extensions"
+copy_in() { # SRC DEST
+    mkdir -p "$2"
+    cp -rn "$1/." "$2/"
+}
+if [ ${#PLUGIN_DIRS[@]} -eq 0 ] && [ ${#EXT_DIRS[@]} -eq 0 ]; then
+    good "none chosen (put .aex files in: $PLUG_DEST)"
+    mkdir -p "$PLUG_DEST" "$CEP_DEST" "$CEP_USER_DEST"
+fi
+for d in "${PLUGIN_DIRS[@]}"; do run "plugins from $d" copy_in "$d" "$PLUG_DEST"; done
+for d in "${EXT_DIRS[@]}"; do run "extensions from $d" copy_in "$d" "$CEP_DEST"; done
+
+step "Settings and menu entry"
+run "AE preferences" "$HERE/scripts/ae_prefs.sh"
+APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+mkdir -p "$APPS"
+cat > "$APPS/nuxfx-after-effects.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=After Effects (NuxFX)
+Comment=Adobe After Effects under Wine
+Exec=$HERE/scripts/launch_ae.sh
+Terminal=false
+Categories=Graphics;AudioVideo;
+EOF
+good "menu entry: $APPS/nuxfx-after-effects.desktop"
+
+step "Check"
+"$HERE/scripts/doctor.sh" || note "doctor.sh reported failures; read them above"
+
+head1 "Done"
+say "  Start:  $HERE/scripts/launch_ae.sh   (or the \"After Effects (NuxFX)\" menu entry)"
+say "  Stop:   $HERE/scripts/stop_ae.sh"
+say "  Plugins and extensions can be added later to:"
+say "    $PLUG_DEST"
+say "    $CEP_DEST"
+say "  Log: $LOG"

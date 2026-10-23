@@ -14,13 +14,12 @@ REPO=$(cd "$HERE/.." && pwd)
 MESA_VERSION=25.2.8
 MESA_TARBALL_SHA256=097842f3e49d996868b38688db87b006f7d4541e93ce86d2f341d8b3e7be7c93
 
-MISSING=""
-for t in meson ninja pkg-config git python3; do command -v "$t" > /dev/null || MISSING="$MISSING $t"; done
-command -v cc > /dev/null || MISSING="$MISSING gcc"
-python3 -c 'import mako' 2> /dev/null || MISSING="$MISSING python3-mako"
+MISSING=$(aegnux_build_missing)
 if [ -n "$MISSING" ]; then
-    echo "missing build tools:$MISSING" >&2
-    echo "  $(aegnux_pkg_hint $MISSING)" >&2
+    echo "the dzn build is missing:" >&2
+    printf '%s\n' "$MISSING" | sed 's/^/  /' >&2
+    echo "  $(aegnux_pkg_hint gcc git pkg-config ninja python3-mako)" >&2
+    echo "  $(aegnux_mesa_dev_hint)" >&2
     exit 1
 fi
 if ! is_wsl; then

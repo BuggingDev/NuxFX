@@ -146,6 +146,8 @@ aegnux_pkg_hint() {
         case "$family:$p" in
             apt:gcc) p=build-essential ;;
             pacman:gcc) p=base-devel ;;
+            apt:xz) p=xz-utils ;;
+            pacman:pipx) p=python-pipx ;;
             apt:ninja|dnf:ninja) p=ninja-build ;;
             pacman:python3-mako) p=python-mako ;;
             zypper:python3-mako) p=python3-Mako ;;
@@ -165,4 +167,50 @@ aegnux_pkg_hint() {
         out="$out $p"
     done
     echo "$out"
+}
+
+
+# Development packages the dzn build needs besides the build tools (the pkg-config modules
+# and programs Mesa 25.2.8 configures with). Only the Debian/Ubuntu names were checked
+# against a Mesa configure log; the other names are best guesses.
+aegnux_mesa_dev_hint() {
+    local family=""
+    if [ -r /etc/os-release ]; then
+        family=$(. /etc/os-release; echo " ${ID:-} ${ID_LIKE:-} ")
+    fi
+    case "$family" in
+        *" debian "*|*" ubuntu "*)
+            echo "sudo apt install bison flex glslang-tools python3-yaml python3-packaging libdrm-dev libexpat1-dev zlib1g-dev libelf-dev libzstd-dev libwayland-dev wayland-protocols libx11-xcb-dev libxcb1-dev libxcb-dri3-dev libxcb-present-dev libxcb-randr0-dev libxcb-shm0-dev libxcb-sync-dev libxcb-xfixes0-dev libxcb-keysyms1-dev libxrandr-dev libxshmfence-dev spirv-tools" ;;
+        *" fedora "*|*" rhel "*|*" centos "*)
+            echo "sudo dnf install bison flex glslang python3-pyyaml python3-packaging libdrm-devel expat-devel zlib-devel libzstd-devel elfutils-libelf-devel wayland-devel wayland-protocols-devel libxcb-devel libX11-devel libXrandr-devel libxshmfence-devel xcb-util-keysyms-devel spirv-tools-devel" ;;
+        *" arch "*)
+            echo "sudo pacman -S --needed bison flex glslang python-yaml python-packaging libdrm expat zlib zstd libelf wayland wayland-protocols libx11 libxcb libxrandr libxshmfence xcb-util-keysyms spirv-tools" ;;
+        *" suse "*|*" opensuse "*)
+            echo "sudo zypper install bison flex glslang-devel python3-PyYAML python3-packaging libdrm-devel libexpat-devel zlib-devel libzstd-devel libelf-devel wayland-devel wayland-protocols-devel libX11-xcb-devel libxcb-devel libXrandr-devel libxshmfence-devel xcb-util-keysyms-devel spirv-tools-devel" ;;
+        *) echo "install the development packages for: bison flex glslangValidator wayland-scanner libdrm expat zlib zstd libelf wayland x11-xcb xcb xcb-dri3 xcb-present xcb-randr xcb-shm xcb-sync xcb-xfixes xcb-keysyms xrandr xshmfence SPIRV-Tools" ;;
+    esac
+}
+
+# Prints what the dzn build is missing, one item per line: programs, python modules, a
+# meson that is too old (Mesa 25.2.8 needs 1.4 or newer) and pkg-config modules.
+aegnux_build_missing() {
+    local t m ver
+    for t in meson ninja pkg-config git python3 bison flex glslangValidator wayland-scanner; do
+        if ! command -v "$t" > /dev/null 2>&1; then if [ "$t" = meson ]; then echo "meson (1.4 or newer; install it with: pipx install meson)"; else echo "$t"; fi; fi
+    done
+    command -v cc > /dev/null 2>&1 || echo gcc
+    for m in mako yaml packaging; do
+        python3 -c "import $m" 2> /dev/null || echo "python3 module $m"
+    done
+    if command -v meson > /dev/null 2>&1; then
+        ver=$(meson --version 2> /dev/null)
+        case "$ver" in
+            0.*|1.[0-3]|1.[0-3].*) echo "meson $ver is too old (1.4 or newer; install it with: pipx install meson)" ;;
+        esac
+    fi
+    if command -v pkg-config > /dev/null 2>&1; then
+        for m in libdrm expat zlib libzstd libelf wayland-client wayland-server wayland-protocols x11-xcb xcb xcb-dri3 xcb-present xcb-randr xcb-shm xcb-sync xcb-xfixes xcb-keysyms xrandr xshmfence SPIRV-Tools; do
+            pkg-config --exists "$m" 2> /dev/null || echo "pkg-config module $m"
+        done
+    fi
 }

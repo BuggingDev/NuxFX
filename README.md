@@ -89,6 +89,37 @@ flowchart LR
 - **Native Linux.** The host's own Vulkan driver (RADV, ANV, NVIDIA) is used, and dzn is
   not built.
 
+## Quick install
+
+```sh
+git clone https://github.com/chunsal/NuxFX.git
+cd NuxFX
+./install.sh
+```
+
+On Windows with WSL2, double-click `install.cmd` instead. The installer asks first, then
+runs without further input:
+
+1. **After Effects folder.** It lists the After Effects installs it finds on this PC
+   (`C:\Program Files\Adobe\...\Support Files`) or lets you type or browse for one.
+2. **Plugins and extensions.** It shows where plugins (`.aex`) and CEP extensions live in
+   the Wine prefix and offers to import them from your Windows install or from any folder.
+3. **Plan.** It shows every choice and asks once before it starts.
+
+Then it installs the system packages (with `sudo`), the Wine runner, dzn (WSL2), the
+Wine prefix, DXVK, vkd3d-proton, the CUDA bridge, your After Effects files, your plugins and
+a menu entry, and runs `scripts/doctor.sh`. Downloads are checked by SHA-256. Finished parts
+are skipped on a second run. Options: `./install.sh --help` (`--yes`, `--ae-dir`, `--plugins`,
+`--extensions`, `--home`, `--dry-run`, `--force`).
+
+The installer was run end to end on Ubuntu 26.04 under WSL2 with `--no-packages --no-dzn
+--no-cuda` (runner, prefix, winetricks, DXVK, vkd3d-proton, After Effects files, plugins).
+The package installation, the dzn build, the CUDA bridge and `install.cmd` were not run
+through it.
+
+You bring the After Effects files yourself. The installer does not download Adobe software
+and does not touch Adobe's licensing. The manual steps below are what the installer does.
+
 ## Installation
 
 The steps are the same on every distribution. Only the package names in step 2 change.
@@ -160,6 +191,23 @@ sudo zypper install git pkgconf ninja meson python3-Mako curl xz zstd cabextract
 ```
 
 Check `meson --version` (1.4 or newer).
+
+**Libraries for the dzn build (WSL2 only)**
+
+Mesa 25.2.8 needs more development packages than the lists above. The Debian/Ubuntu names
+below were checked against a Mesa configure log; the names for other distributions are
+printed by `scripts/doctor.sh --build` and are best guesses.
+
+```sh
+sudo apt install bison flex glslang-tools python3-yaml python3-packaging libdrm-dev \
+    libexpat1-dev zlib1g-dev libelf-dev libzstd-dev libwayland-dev wayland-protocols \
+    libx11-xcb-dev libxcb1-dev libxcb-dri3-dev libxcb-present-dev libxcb-randr0-dev \
+    libxcb-shm0-dev libxcb-sync-dev libxcb-xfixes0-dev libxcb-keysyms1-dev libxrandr-dev \
+    libxshmfence-dev spirv-tools
+```
+
+`scripts/doctor.sh --build` and `build_dzn.sh` list what is still missing, including a
+meson older than 1.4.
 
 ### 3. Mesa and dzn
 
