@@ -1,0 +1,116 @@
+From: NuxFX contributors
+Subject: [PATCH] dzn: implement vkCmdBindVertexBuffers2 and dynamic vertex strides
+
+DXVK 3.0.1 creates its graphics pipelines with VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE
+(static stride 0) and passes the real strides only in vkCmdBindVertexBuffers2(pStrides).
+dzn had no CmdBindVertexBuffers2 (the entrypoint was the generic stub) and ignored the
+dynamic-stride state, so every vertex-buffer draw used a stride of 0 and rendered nothing.
+Advanced 3D (Calder) draws its scene and the final composite quad this way, which is why it
+produced solid magenta (its clear colour) frames.
+
+ - add dzn_CmdBindVertexBuffers2 (pSizes, pStrides, null buffers)
+ - remember VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE in the pipeline and keep the strides
+   bound by vkCmdBindVertexBuffers2 when a pipeline is bound
+ - skip bindings with stride 0 in the triangle-fan vertex count
+---
+--- a/src/microsoft/vulkan/dzn_cmd_buffer.c
++++ b/src/microsoft/vulkan/dzn_cmd_buffer.c
+@@ -3796,6 +3796,8 @@
+    } else {
+       uint32_t max_vertex = 0;
+       for (uint32_t i = 0; i < pipeline->vb.count; i++) {
++         if (!cmdbuf->state.vb.views[i].StrideInBytes)
++            continue;
+          max_vertex =
+             MAX2(max_vertex,
+                  cmdbuf->state.vb.views[i].SizeInBytes / cmdbuf->state.vb.views[i].StrideInBytes);
+@@ -5171,8 +5173,12 @@
+          cmdbuf->state.dirty |= DZN_CMD_DIRTY_BLEND_CONSTANTS;
+       }
+ 
+-      for (uint32_t vb = 0; vb < gfx->vb.count; vb++)
+-         cmdbuf->state.vb.views[vb].StrideInBytes = gfx->vb.strides[vb];
++      /* With dynamic strides the values bound by vkCmdBindVertexBuffers2 must
++       * survive the pipeline bind. */
++      if (!gfx->vb.dynamic_strides) {
++         for (uint32_t vb = 0; vb < gfx->vb.count; vb++)
++            cmdbuf->state.vb.views[vb].StrideInBytes = gfx->vb.strides[vb];
++      }
+ 
+       if (gfx->vb.count > 0)
+          BITSET_SET_RANGE(cmdbuf->state.vb.dirty, 0, gfx->vb.count - 1);
+@@ -5538,6 +5544,48 @@
+    }
+ 
+    BITSET_SET_RANGE(cmdbuf->state.vb.dirty, firstBinding,
++                    firstBinding + bindingCount - 1);
++}
++
++/* vkCmdBindVertexBuffers2: like the 1.0 call, plus per-binding sizes and
++ * (with VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE) strides. */
++VKAPI_ATTR void VKAPI_CALL
++dzn_CmdBindVertexBuffers2(VkCommandBuffer commandBuffer,
++                          uint32_t firstBinding,
++                          uint32_t bindingCount,
++                          const VkBuffer *pBuffers,
++                          const VkDeviceSize *pOffsets,
++                          const VkDeviceSize *pSizes,
++                          const VkDeviceSize *pStrides)
++{
++   VK_FROM_HANDLE(dzn_cmd_buffer, cmdbuf, commandBuffer);
++
++   if (!bindingCount)
++      return;
++
++   D3D12_VERTEX_BUFFER_VIEW *vbviews = cmdbuf->state.vb.views;
++
++   for (uint32_t i = 0; i < bindingCount; i++) {
++      VK_FROM_HANDLE(dzn_buffer, buf, pBuffers[i]);
++      D3D12_VERTEX_BUFFER_VIEW *view = &vbviews[firstBinding + i];
++
++      if (!buf) {
++         /* VK_EXT_robustness2 nullDescriptor: an unbound slot. */
++         view->BufferLocation = 0;
++         view->SizeInBytes = 0;
++      } else {
++         VkDeviceSize size =
++            pSizes && pSizes[i] != VK_WHOLE_SIZE ? pSizes[i] : buf->size - pOffsets[i];
++
++         view->BufferLocation = buf->gpuva + pOffsets[i];
++         view->SizeInBytes = size;
++      }
++
++      if (pStrides)
++         view->StrideInBytes = pStrides[i];
++   }
++
++   BITSET_SET_RANGE(cmdbuf->state.vb.dirty, firstBinding,
+                     firstBinding + bindingCount - 1);
+ }
+ 
+--- a/src/microsoft/vulkan/dzn_pipeline.c
++++ b/src/microsoft/vulkan/dzn_pipeline.c
+@@ -1959,8 +1959,9 @@
+             /* Nothing to do since we just support lineWidth = 1. */
+             break;
+          case VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE:
+-            /* Dynamic vertex strides are not implemented yet; the static
+-             * strides from VkVertexInputBindingDescription are used. */
++            /* DXVK creates its pipelines with a stride of 0 here and passes the
++             * real strides in vkCmdBindVertexBuffers2(pStrides). */
++            pipeline->vb.dynamic_strides = true;
+             break;
+          default:
+             /* Unknown dynamic states are ignored. unreachable() here let the
+--- a/src/microsoft/vulkan/dzn_private.h
++++ b/src/microsoft/vulkan/dzn_private.h
+@@ -959,6 +959,9 @@
+    struct {
+       unsigned count;
+       uint32_t strides[MAX_VBS];
++      /* VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE: the strides come from
++       * vkCmdBindVertexBuffers2 and the static ones above are zero. */
++      bool dynamic_strides;
+    } vb;
+ 
+    struct {

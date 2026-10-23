@@ -11,7 +11,7 @@ After Effects 2024.
 
 > **Works:** After Effects 2024 (24.6.2) on Ubuntu 24.04 under WSL2, with the features
 > in the [status table](#status).
-> **Does not work:** the Advanced 3D renderer and the Cinema 4D renderer.
+> **Does not work:** the Cinema 4D renderer. Advanced 3D works for the scene tested (see Gaps).
 > Other distributions are not verified. See [Supported distributions](#supported-distributions).
 
 ## Contents
@@ -39,7 +39,7 @@ Features on Ubuntu 24.04 under WSL2:
 | RAM preview (space) | Does not work reliably | The playhead stops after 1 to 3 seconds on the first preview, and later previews may not move. See [Gaps](#gaps) |
 | Classic 3D renderer | Works | Panel and render queue |
 | Direct3D 11 swapchain windows | Works | Patch 17 |
-| Advanced 3D renderer (`ADBE Calder`) | Does not work | Solid magenta frames, no error. See [Gaps](#gaps) |
+| Advanced 3D renderer (`ADBE Calder`) | Works (simple scene) | Needs patch 19, Adobe's `d3dcompiler_47.dll` and an empty disk cache once. See [Gaps](#gaps) |
 | Cinema 4D renderer (`ADBE Ernst`) | Does not work | AE's plugin scan does not load the plugin under Wine |
 | Effects on the GPU | Partly | Only Invert and solid layers were checked |
 | CUDA | Partly | Device queries work (patch 18). Direct3D interop is not implemented |
@@ -203,6 +203,9 @@ cd ~/NuxFX
 wineboot -i                           # create the prefix
 wine reg add 'HKCU\Software\Wine' /v Version /d win10 /f
 winetricks -q vcrun2022 d3dcompiler_47
+# winetricks installs the 2013 d3dcompiler_47 (6.3.9600). Advanced 3D needs Adobe's newer
+# one, which is part of the AE install:
+cp "$AE_DIR/CEPHtmlEngine/d3dcompiler_47.dll" "$WINEPREFIX/drive_c/windows/system32/d3dcompiler_47.dll"
 ```
 
 `aegnux_env` puts the runner on `PATH` and sets `WINEPREFIX` to `$AEGNUX_HOME/wineprefix`
@@ -341,7 +344,7 @@ scripts/gpu_sniffer_test.sh        # dzn entrypoint audit, then AE's GPUSniffer 
 ## Repository layout
 
 ```
-patches/   18 patches (git format-patch) against pristine Mesa 25.2.8
+patches/   19 patches (git format-patch) against pristine Mesa 25.2.8
 scripts/   build_dzn.sh          build and install dzn (WSL2)
            launch_ae.sh          start AE (applies ae_prefs.sh and clear_crash_state.sh)
            stop_ae.sh            stop AE and its wineserver
@@ -373,11 +376,8 @@ What is missing, broken or not decided yet.
 
 **Not working**
 
-- Advanced 3D renderer (`ADBE Calder`): solid magenta frames. AE's plugin scan does not
-  load `Calder.aex` under Wine (`No loaders recognized this plugin`). Changing the feature
-  level, the visibility of the NVIDIA adapter, the DirectX display or CUDA did not change
-  this. The cause is not found. `docs/known-issues.md` lists what was ruled out.
-- Cinema 4D renderer (`ADBE Ernst`): the same plugin-scan failure. Rendering not tested.
+- Advanced 3D renderer (`ADBE Calder`): renders a 3D solid correctly (patch 19, Adobe's d3dcompiler_47, empty the disk cache once). Lights, shadows, models and environment textures were not tested. `docs/known-issues.md` has the causes.
+- Cinema 4D renderer (`ADBE Ernst`): not tested (the plugin-scan message that was blamed earlier for Advanced 3D is harmless).
 - RAM preview: the playhead stops after 1 to 3 seconds of the first preview, and later previews may not move. The cause is not known. `docs/known-issues.md` has the evidence and the tests that did not change it.
 - `tests/run_ae_viewer_test.sh` checks one frame (a red solid with Invert). It does not play the comp.
 

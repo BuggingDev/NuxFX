@@ -44,7 +44,7 @@ Status date: 2026-10-18. Patch numbers refer to `patches/`.
   this repository took `ADBE Advanced 3d` for Advanced 3D, so those tests ran
   Classic 3D.
 - Classic 3D renders correctly, in the panel and in the render queue.
-- Advanced 3D: see "Open: Advanced 3D renders solid magenta frames".
+- Advanced 3D: renders since patch 19, see "Advanced 3D (`ADBE Calder`): fixed, needs three things".
 
 ## Stability and correctness
 
@@ -120,58 +120,56 @@ Status date: 2026-10-18. Patch numbers refer to `patches/`.
 - Effect: nvcuda returns the same LUID as DXGI and vkd3d-proton. On its own it does
   not make Advanced 3D or AE's DirectX display work.
 
-## Open: Advanced 3D renders solid magenta frames
+## Advanced 3D (`ADBE Calder`): fixed, needs three things
 
-- Symptom: with the comp renderer set to Advanced 3D (`ADBE Calder`), the
-  Composition panel and render queue output are solid magenta (255, 0, 255), and a
-  1920x1080 frame "renders" in about 130 ms. AE shows no error. Classic 3D in the
-  same project gives the expected image. With CUDA hidden, AE reports "Advanced 3D
-  is not supported by the current hardware".
-- Advanced 3D draws with Direct3D 11 (Calder.aex imports d3d11.dll and compiles its
-  shaders with d3dcompiler_47), not Direct3D 12.
-- A D3D11 API trace of a full run (apitrace) shows AE creating two D3D11 devices on
-  the GPU at start and nothing after that: no textures, shaders or draws. The
-  Advanced 3D renderer never starts drawing.
-- Ruled out (tested one by one, still magenta):
-  - `cuDeviceGetLuid` failing: fixed by patch 18. AE's own GPU tags then report the
-    display and the CUDA device as the same adapter (with the DirectX display on).
-  - DXVK reporting the GPU as AMD (`dxgi.hideNvidiaGpu` default):
-    `DXVK_CONFIG="dxgi.hideNvidiaGpu = False"` makes AE see an NVIDIA adapter.
-  - Direct3D 12 feature level 11_1 (dzn has no sparse resources, so vkd3d-proton
-    stops at 11_1): `VKD3D_FEATURE_LEVEL=12_0` makes GPUSniffer report feature level
-    12 (result 785 instead of 529).
-  - AE's DirectX display on or off, project GPU mode CUDA or Mercury Software Only,
-    and lavapipe instead of dzn.
-  - Runs labelled "CUDA hidden" before this revision only set the nvcuda and nvcuvid
-    overrides. dzn still queried CUDA through patch 18, so those runs do not show a
-    CUDA-free result. `AEGNUX_DISABLE_CUDA=1` now also sets `DZN_DEBUG=nocudauuid`.
-- Not implemented in the CUDA bridge (nvidia-libs nvcuda): Direct3D interop.
-  `cuGraphicsD3D11RegisterResource` returns CUDA_ERROR_NOT_SUPPORTED, and
-  D3D11/D3D12 handle types are passed to the Linux libcuda unchanged. These
-  functions were not called in the traced runs, so they are not shown to be the
-  cause.
-- Plugin recognition: AE's plugin scan does not recognise `Calder.aex` or `Ernst.aex`
-  (the Cinema 4D renderer). A fresh scan logs "Loading from disk... No loaders
-  recognized this plugin, so the plugin is set to Ignore." in the prefix's
-  `Plugin Loading.log`. `Advanced3D.aex` (Classic 3D) and `Standard3D.aex` are
-  recognised through AE's hardcoded PiPL list instead. `Calder.aex` has the same
-  SHA-256 as the copy in the Windows AE 2024 install, and Wine loads it as a native
-  module without import errors.
-- The Ignore flag is not the failure by itself: the Windows AE 24.6 plugin cache also
-  holds `Ignore=1` for `Calder` and `Ernst`. A fresh scan gave the same result with
-  feature level 12_0, CUDA hidden, `dxgi.hideNvidiaGpu = False` and the DirectX
-  display on. AE reports Windows 10 Pro, build 19045.
-- In the traced runs no D3D11 work follows device creation (apitrace). Of the D3D
-  interop calls, only `cuD3D11GetDevice` was logged (it returns device 0). A generic
-  D3D11 test in the same prefix passes: `D3DCompile`, device creation at feature
-  level 11_1 and 10_0, a draw and a readback.
-- Not found: the code in AE that decides recognition and the on-demand load. The
-  repository does not inspect Adobe binaries. The next useful step is a comparison
-  with a working Windows run (its `Plugin Loading.log` and log during renderer
-  selection); no AE 24.6 plugin log exists on the Windows side here. Untested: native
-  Linux with NVIDIA's own Vulkan driver (no dzn; DXVK and vkd3d-proton reach feature
-  level 12_x there). lavapipe gave the same magenta, so the cause is probably above
-  the Vulkan driver.
+Advanced 3D used to give solid magenta (255, 0, 255) frames with no error. Output is now
+the expected image (tested: a red 300x300 3D solid rotated 40 degrees in a 640x480 comp,
+rendered with aerender; the frame has the red square on black and no magenta). Three
+independent problems were stacked; the first two hid the third.
+
+1. **A stale Disk Cache served the magenta frame.** AE never called the renderer: the
+   media cache reported the frame as `IsOnDisk` and gave back the frame stored by an
+   earlier failed render (`BEE_ItemRenderOptions` flags: 0x02 cached, 0x08 render). After
+   the other two fixes, empty the disk cache once (`.../AppData/Local/Temp/Adobe/After
+   Effects/24.6/Disk Cache - <host>.noindex`, or Preferences > Media & Disk Cache > Empty
+   Disk Cache). Frames rendered after the fixes are correct and cache normally.
+2. **The prefix had the 2013 `d3dcompiler_47.dll` (6.3.9600).** Calder's engine (bgfx based)
+   compiles its `.sc` shaders from `EngineAssets.zip` at run time. Its compute shaders
+   failed to compile (`Invalid compute shader with error :`), the frame task threw error
+   517 and the render aborted. Adobe's own `AE/CEPHtmlEngine/d3dcompiler_47.dll`
+   (10.0.19041.685) compiles them. `winetricks d3dcompiler_47` installs the old one; copy
+   Adobe's over it (see README, step 5).
+3. **dzn did not implement `vkCmdBindVertexBuffers2`.** DXVK 3.0.1 creates pipelines with
+   `VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE` and passes the strides only in
+   `vkCmdBindVertexBuffers2(pStrides)`. dzn had the generic stub for that entrypoint and
+   ignored the dynamic state, so every draw that reads a vertex buffer used stride 0 and
+   drew nothing. Advanced 3D draws its scene and its final composite quad that way, so the
+   target kept its magenta clear colour (the engine clears intermediate targets to magenta
+   as a "not written" marker). A standalone D3D11 test showed it: a vertex-buffer draw
+   left the target at its clear colour, while `SV_VertexID` draws and texture sampling
+   worked. Fixed by patch 19.
+   - Do not use a `winevulkan.so` whose 64-bit `vkCmdBindVertexBuffers2` thunk was changed to
+     call the v1 host function (a workaround for the missing dzn entrypoint). It drops the
+     strides and brings the problem back. The unmodified runner file is correct once dzn has
+     patch 19.
+
+How it was found (kept short; details in `docs/technical-note.md`): a BEE probe on the
+render path showed no `PR_NewRender` call and the media cache flags; with the cache empty,
+`PR_Render` ran and Calder logged the shader error; a host-side Vulkan layer then showed
+the composite pass (`draw verts=6` into a magenta-cleared 640x480 image, blending off)
+and the vertex buffer holding a valid fullscreen quad, and dzn received v1 binds with
+stride 0.
+
+Still open for Advanced 3D: nothing known with this scene. More complex scenes (lights,
+shadows, models, environment textures) were not tested. The CUDA/D3D interop gaps in the
+nvcuda bridge (`cuGraphicsD3D11RegisterResource` returns CUDA_ERROR_NOT_SUPPORTED) were
+not exercised by this scene. Shared D3D11 textures between two devices are not coherent
+under DXVK on Wine here (a standalone test: the second device never sees the first one's
+writes, and `DxvkError` with keyed mutexes); AE did not hit this in the tested scene.
+
+Earlier notes in this file about the plugin scan ("No loaders recognized this plugin"),
+the missing D3D11 work in the apitrace and the ruled-out feature levels did not turn out to
+be the cause: the renderer loads and runs, and the Ignore flag does not matter.
 
 ## Not a dzn issue: D3D11 clear-only frames present black
 
