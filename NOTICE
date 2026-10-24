@@ -57,6 +57,15 @@ MIT-licensed code may be included in a GPL-3.0 work. Mesa accepts contributions 
 under its own license (MIT), so these patches must be relicensed under MIT before they
 can be sent upstream to Mesa.
 
+AEGNUX
+------
+
+NuxFX is based on AEGNUX (https://github.com/relativemodder/aegnux), which is licensed
+under the GNU General Public License, version 3. AEGNUX is inspired by AeNux by cutefish
+(https://github.com/cutefishaep/AeNux). NuxFX keeps the folder layout and the naming of
+AEGNUX (~/.local/share/aegnux, AEGNUX_* settings) and is distributed under the GNU General
+Public License as well (version 3 or later, see above).
+
 Other components
 ----------------
 

@@ -23,7 +23,8 @@ By contributing you agree that your contribution is licensed under GPL-3.0-or-la
   `tests/run_ae_effects_test.sh` and `tests/run_ae_ram_preview_test.sh` (and
   `tests/run_dxgi_present_test.sh`, `tests/run_push_descriptor_test.sh`,
   `tests/run_semaphore_share_test.sh` and `tests/run_d3d11_shared_texture_test.sh` for dzn
-  changes) where your setup allows it.
+  changes, `tests/run_ae_wayland_test.sh` for changes to the display handling) where your setup
+  allows it. [docs/tests.md](docs/tests.md) lists every test and what it needs.
 - Do not commit Adobe files, logs with personal data or local paths.
 
 ## Reporting problems
