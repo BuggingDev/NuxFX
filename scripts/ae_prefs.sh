@@ -20,19 +20,21 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 TAB=$(printf '\t')
 
-# HKCU\Software\Wine\Drivers Graphics = x11
-#   Under WSLg and on Wayland desktops WAYLAND_DISPLAY is set, and this Wine build then
-#   picks its Wayland driver, which was never tested with After Effects (on a private
-#   Xvfb display the windows do not even appear there). Everything here was verified with
-#   the X11 driver, so the prefix is told to use it.
-if [ -f "$WINEPREFIX/user.reg" ] && ! grep -aq '^"Graphics"="x11"' "$WINEPREFIX/user.reg" \
+# HKCU\Software\Wine\Drivers Graphics = x11 | wayland
+#   On a Wayland desktop WAYLAND_DISPLAY is set, and this Wine build then picks its Wayland
+#   driver on its own. Everything here was verified with the X11 driver (XWayland on a
+#   Wayland desktop), so the prefix is told to use it whenever an X display exists. Wine's own
+#   Wayland driver is used when there is no X display, or with AEGNUX_WAYLAND=1
+#   (aegnux_wine_driver in common.sh).
+DRIVER=$(aegnux_wine_driver)
+if [ -f "$WINEPREFIX/user.reg" ] && ! grep -aq "^\"Graphics\"=\"$DRIVER\"" "$WINEPREFIX/user.reg" \
    && [ -x "$WINE_BIN_DIR/wine" ]; then
     (
         aegnux_env
-        wine reg add 'HKCU\Software\Wine\Drivers' /v Graphics /d x11 /f > /dev/null 2>&1
+        wine reg add 'HKCU\Software\Wine\Drivers' /v Graphics /d "$DRIVER" /f > /dev/null 2>&1
         timeout 30 "$WINE_BIN_DIR/wineserver" -w > /dev/null 2>&1
     )
-    echo "Wine graphics driver set to x11"
+    echo "Wine graphics driver set to $DRIVER"
 fi
 
 # set_db_pref FILE KEY VALUE DEFAULT: sets the value column and keeps the line ending.

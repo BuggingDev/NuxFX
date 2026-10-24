@@ -38,8 +38,38 @@ if [ -e /dev/ntsync ]; then ok "/dev/ntsync present"; else warn "/dev/ntsync mis
 ok "ptrace_scope: $(cat /proc/sys/kernel/yama/ptrace_scope 2> /dev/null || echo unknown) (1: a debugger can attach only to its own child processes)"
 if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
     ok "display: ${DISPLAY:-} ${WAYLAND_DISPLAY:-}"
+    # After Effects was verified with Wine's X11 driver; on a Wayland desktop that is XWayland.
+    case "$(aegnux_wine_driver)" in
+        x11)
+            if [ -z "${DISPLAY:-}" ]; then
+                fail "AEGNUX_WAYLAND=0 needs an X display and DISPLAY is not set (in a Wayland session start XWayland: $(aegnux_pkg_hint xwayland))"
+            elif [ -n "${WAYLAND_DISPLAY:-}" ]; then
+                ok "Wayland session: Wine uses X11 through XWayland (DISPLAY=${DISPLAY}); the Wayland socket is hidden from Wine"
+            fi
+            ;;
+        wayland)
+            MISSING=$(aegnux_wayland_missing_symbols)
+            if [ -n "$MISSING" ]; then
+                fail "Wine would use its Wayland driver, which cannot load here (libwayland-client lacks $MISSING): start from a session that has XWayland (DISPLAY set; $(aegnux_pkg_hint xwayland)) or an X11 session"
+            elif [ -z "${DISPLAY:-}" ] && have Xwayland; then
+                warn "Wine uses its Wayland driver because DISPLAY is not set (XWayland is installed but not running); After Effects was verified with X11 only"
+            elif [ -z "${DISPLAY:-}" ]; then
+                warn "Wine uses its Wayland driver: there is no X display and XWayland is missing ($(aegnux_pkg_hint xwayland)); After Effects was verified with X11 only"
+            else
+                warn "AEGNUX_WAYLAND=1: Wine uses its own Wayland driver; After Effects was verified with X11 only"
+            fi
+            ;;
+    esac
 else
-    fail "neither DISPLAY nor WAYLAND_DISPLAY is set (start from a desktop session or WSLg)"
+    fail "neither DISPLAY nor WAYLAND_DISPLAY is set (start from a desktop session)"
+fi
+# Heavy memory use: a Wine program with a large working set needs many memory mappings, and
+# some distributions still ship the kernel default of 65530 (others raised it to 1048576).
+MAPS=$(cat /proc/sys/vm/max_map_count 2> /dev/null || echo 0)
+if [ "$MAPS" -ge 1048576 ] 2> /dev/null; then
+    ok "vm.max_map_count: $MAPS"
+else
+    warn "vm.max_map_count is $MAPS (1048576 is recommended; programs that use a lot of memory can crash when it is too low): echo 'vm.max_map_count=1048576' | sudo tee /etc/sysctl.d/99-nuxfx.conf && sudo sysctl --system"
 fi
 
 echo "Wine and After Effects"

@@ -454,6 +454,48 @@ be the cause: the renderer loads and runs, and the Ignore flag does not matter.
 - Status: not known whether this loop is why the playhead does not repaint, and what the worker
   waits for is not known either.
 
+## Wayland: X11 through XWayland is the tested path
+
+- Setup: `aegnux_wine_driver` (`scripts/common.sh`) picks Wine's display driver. It is `x11` when
+  `DISPLAY` is set (XWayland, in a Wayland session) and `wayland` only when `DISPLAY` is not set or
+  `AEGNUX_WAYLAND=1`. `ae_prefs.sh` writes the choice to `HKCU\Software\Wine\Drivers`, and
+  `aegnux_env` hides `WAYLAND_DISPLAY` from Wine when the driver is `x11`. Without that, a Wine that
+  sees both variables takes its Wayland driver on its own.
+- Tested: `tests/run_ae_wayland_test.sh` runs After Effects inside sway 1.9 (headless backend,
+  XWayland, private sockets, `WLR_RENDERER=pixman`) started so that `WAYLAND_DISPLAY` and `DISPLAY`
+  are both set. After Effects loads `winex11.so`, and a `grim` screenshot of the compositor shows
+  the rendered comp in the Composition panel (78522 cyan pixels, test passes). A stepwise run showed
+  the whole After Effects workspace in the compositor. The test passed in four runs in a row. One
+  earlier run, the first after a run in which Wine's Wayland driver had failed to load, showed no
+  window within 150 s (its `err.log` held only Wine's start-up lines); it was not reproduced, and
+  its cause is not known.
+- Wine's own Wayland driver (`AEGNUX_WAYLAND=1`) does not work well enough to be a default:
+  - The runner's `winewayland.so` calls `wl_display_create_queue_with_name`, which libwayland 1.23
+    added. With libwayland-client 1.22 (Ubuntu 24.04) the driver fails to load; Wine logs "Application
+    tried to create a window, but no driver could be loaded" and no window appears. `launch_ae.sh` and
+    `doctor.sh` find this with `ldd -r` and say so.
+  - With a libwayland-client 1.23.1 from Debian trixie in `LD_LIBRARY_PATH` (nothing installed
+    system-wide), After Effects starts and draws its workspace in sway, but shows the warning
+    "Advanced 3D is not supported by the current hardware" at once. That warning does not appear on the
+    X11 route. The cause was not examined (likely the OpenGL or GPU detection through Wine's Wayland
+    driver).
+- Not tested: GNOME and KDE Plasma sessions, fractional scaling, HiDPI and several monitors.
+- Test environment note: wlroots compositors refuse to start XWayland when `/tmp/.X11-unix` lacks the
+  sticky bit (a mounted folder such as WSLg's has none; a desktop distribution creates it with mode
+  1777). The test then fails with a message that names the folder.
+
+## Heavy memory use: a crash with nearly full memory was not reproduced
+
+- The README of AEGNUX lists "potential crashes under heavy RAM usage (need to tweak your system
+  config)" as a known downside. The system setting that fits is `vm.max_map_count`: the kernel limit
+  of memory mappings per process is 65530 on many systems, and Wine programs with a large working
+  set use many mappings.
+- Measured: After Effects used at most about 5800 mappings at up to 3 GB resident memory in the
+  tests (the limit of the test system was 1048576). A crash with nearly full memory was not
+  reproduced, so the limit is a likely cause, not a proven one.
+- `scripts/doctor.sh` warns when `vm.max_map_count` is below 1048576, and the README gives the
+  `sysctl` line that raises it.
+
 ## Open: patch 15 advertises features and extensions without tests
 
 - Patch 15 changes one file, `src/microsoft/vulkan/dzn_device.c` (24 added lines). It sets

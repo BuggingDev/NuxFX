@@ -217,12 +217,19 @@ done
 [ "$CUDA" = 1 ] && [ "$HAVE_CUDA" = 0 ] && CUDA=0
 [ "$HAVE_CUDA" = 0 ] && note "no libcuda found: the CUDA bridge is skipped and AE renders in software (Advanced 3D unavailable)"
 
+# A Wine program with a large working set needs many memory mappings, and some distributions
+# still ship the kernel default of 65530 (a likely cause of crashes when memory use is high).
+MAPS=$(cat /proc/sys/vm/max_map_count 2> /dev/null || echo 0)
+RAISE_MAPS=0
+if [ "$PACKAGES" = 1 ] && [ "$MAPS" -lt 1048576 ] 2> /dev/null; then RAISE_MAPS=1; fi
+
 # ---------- plan ----------
 
 head1 "Plan"
 say "  Install folder    $AEGNUX_HOME"
 say "  After Effects     $AE_SRC"
 say "  System packages   $([ "$PACKAGES" = 1 ] && echo yes || echo skipped)"
+say "  Memory mappings   $([ "$RAISE_MAPS" = 1 ] && echo "vm.max_map_count $MAPS, raised to 1048576 (sudo, /etc/sysctl.d/99-nuxfx.conf)" || echo "vm.max_map_count $MAPS, left alone")"
 say "  Wine runner       $WINE_VER (Wine TkG staging, checked by SHA-256)"
 say "  dzn (Mesa)        $([ "$DZN" = 1 ] && echo "build from source, takes a while" || echo skipped)"
 say "  OpenGL (Mesa)     $([ "$DZN" = 1 ] && echo "build from source (EGL and the d3d12 driver, same Mesa version)" || echo skipped)"
@@ -329,6 +336,13 @@ if [ "$PACKAGES" = 1 ]; then
     [ -z "$STILL" ] || note "still missing: $STILL (scripts/doctor.sh explains what each one does)"
 else
     note "skipped (--no-packages)"
+fi
+if [ "$RAISE_MAPS" = 1 ]; then
+    if sudo sh -c "mkdir -p /etc/sysctl.d && echo 'vm.max_map_count=1048576' > /etc/sysctl.d/99-nuxfx.conf && sysctl -w vm.max_map_count=1048576" >> "$LOG" 2>&1; then
+        good "vm.max_map_count raised from $MAPS to 1048576 (/etc/sysctl.d/99-nuxfx.conf)"
+    else
+        note "could not raise vm.max_map_count (now $MAPS); later: echo 'vm.max_map_count=1048576' | sudo tee /etc/sysctl.d/99-nuxfx.conf && sudo sysctl --system"
+    fi
 fi
 if [ "$DZN" = 1 ] && [ -n "$(aegnux_build_missing | grep '^meson')" ]; then
     # pipx first; some distributions ship a pipx with a missing dependency, so a private

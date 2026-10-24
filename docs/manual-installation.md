@@ -125,6 +125,17 @@ openSUSE: `scripts/doctor.sh --build` prints the command (it installs by `pkgcon
 capability). On any distribution `scripts/doctor.sh --build` and `build_dzn.sh` list what is
 still missing, including a meson older than 1.4.
 
+### Memory mappings
+
+A Wine program with a large working set needs many memory mappings, and some distributions still
+ship the kernel default `vm.max_map_count` of 65530 (a likely cause of crashes when memory use is
+high). The installer raises it to 1048576 when it is lower; by hand:
+
+```sh
+cat /proc/sys/vm/max_map_count     # 1048576 or more is fine
+echo 'vm.max_map_count=1048576' | sudo tee /etc/sysctl.d/99-nuxfx.conf && sudo sysctl --system
+```
+
 ## 3. Mesa: dzn and OpenGL (Direct3D 12 hosts)
 
 ```sh

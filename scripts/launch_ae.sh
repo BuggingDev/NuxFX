@@ -30,6 +30,14 @@ fi
 "$WINE_BIN_DIR/wineserver" -k > /dev/null 2>&1 || true
 sleep 1
 "$HERE/clear_crash_state.sh" > /dev/null
+if [ "$(aegnux_wine_driver)" = wayland ]; then
+    MISSING=$(aegnux_wayland_missing_symbols)
+    if [ -n "$MISSING" ]; then
+        echo "Wine's Wayland driver cannot load here: libwayland-client lacks $MISSING." >&2
+        echo "Start After Effects in a session that has XWayland (DISPLAY is set; $(aegnux_pkg_hint xwayland)), or in an X11 session." >&2
+        exit 1
+    fi
+fi
 "$HERE/ae_prefs.sh"
 aegnux_env
 if [ "$(aegnux_vulkan_mode)" = dzn ] && [ ! -f "$VK_ICD_FILENAMES" ]; then

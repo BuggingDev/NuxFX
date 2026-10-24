@@ -9,7 +9,7 @@
 
 AEGNUX_CONFIG="${AEGNUX_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/aegnux/aegnux.conf}"
 # Keys read from the config file. Other lines are ignored; doctor.sh reports them.
-AEGNUX_CONFIG_KEYS="AEGNUX_HOME AEGNUX_LAYER_DIR AEGNUX_LOG_DIR AEGNUX_TEST_DIR AEGNUX_VULKAN AEGNUX_DISABLE_CUDA AEGNUX_DIRECTX_DISPLAY AEGNUX_GL_PREFIX AEGNUX_SYSTEM_GL AEGNUX_REP_MOVSB AEGNUX_HIDE_HOME_SCREEN AEGNUX_COACHMARKS AEGNUX_EXTRA_OVERRIDES AEGNUX_WINEDEBUG AEGNUX_APIVER_LAYER WINE_BIN_DIR WINEPREFIX AE_DIR MESA_SRC MESA_BUILD DZN_PREFIX AE_VERSION"
+AEGNUX_CONFIG_KEYS="AEGNUX_HOME AEGNUX_LAYER_DIR AEGNUX_LOG_DIR AEGNUX_TEST_DIR AEGNUX_VULKAN AEGNUX_DISABLE_CUDA AEGNUX_DIRECTX_DISPLAY AEGNUX_GL_PREFIX AEGNUX_SYSTEM_GL AEGNUX_REP_MOVSB AEGNUX_HIDE_HOME_SCREEN AEGNUX_COACHMARKS AEGNUX_EXTRA_OVERRIDES AEGNUX_WINEDEBUG AEGNUX_APIVER_LAYER AEGNUX_WAYLAND WINE_BIN_DIR WINEPREFIX AE_DIR MESA_SRC MESA_BUILD DZN_PREFIX AE_VERSION"
 if [ -f "$AEGNUX_CONFIG" ]; then
     while IFS= read -r _aegnux_line || [ -n "$_aegnux_line" ]; do
         _aegnux_line=${_aegnux_line%$'\r'}
@@ -59,6 +59,40 @@ aegnux_vulkan_mode() {
 
 aegnux_dzn_icd() {
     echo "$DZN_PREFIX/share/vulkan/icd.d/dzn_icd.x86_64.json"
+}
+
+# The display server Wine talks to: "x11" or "wayland". After Effects was verified with Wine's
+# X11 driver, which on a Wayland desktop runs through XWayland (GNOME, KDE Plasma, sway and the
+# others start it). Wine's own Wayland driver is only used when asked for or when there is no X
+# display at all.
+#   AEGNUX_WAYLAND=auto (default)  x11 when DISPLAY is set, wayland when only WAYLAND_DISPLAY is set
+#   AEGNUX_WAYLAND=0               always x11
+#   AEGNUX_WAYLAND=1               always wayland (experimental)
+aegnux_wine_driver() {
+    case "${AEGNUX_WAYLAND:-auto}" in
+        1|wayland) echo wayland ;;
+        0|x11) echo x11 ;;
+        *)
+            if [ -n "${DISPLAY:-}" ]; then
+                echo x11
+            elif [ -n "${WAYLAND_DISPLAY:-}" ]; then
+                echo wayland
+            else
+                echo x11
+            fi
+            ;;
+    esac
+}
+
+# Prints the libwayland-client symbols that Wine's Wayland driver needs and the installed library
+# lacks (nothing when it can load). The runner is built against libwayland 1.23 or newer and calls
+# wl_display_create_queue_with_name; with an older libwayland (Ubuntu 24.04 has 1.22) the driver does
+# not load and Wine says "no driver could be loaded". The X11 driver is not affected.
+aegnux_wayland_missing_symbols() {
+    local so="$WINE_BIN_DIR/../lib/wine/x86_64-unix/winewayland.so"
+    [ -f "$so" ] || return 0
+    command -v ldd > /dev/null 2>&1 || return 0
+    ldd -r "$so" 2>&1 | sed -n 's/^undefined symbol: \(wl_[A-Za-z0-9_]*\).*/\1/p' | sort -u | paste -sd ' ' -
 }
 
 # Wine names the user folder of the prefix after the Unix login name.
@@ -117,6 +151,9 @@ aegnux_env() {
     if [ -n "${WINEDLLOVERRIDES:-}" ]; then overrides="$overrides;$WINEDLLOVERRIDES"; fi
     export WINEDLLOVERRIDES="$overrides"
     export WINEDEBUG="${WINEDEBUG:-${AEGNUX_WINEDEBUG:-err+module,err+d3d,err+dxgi,err+vulkan,warn+d3d,err+seh}}"
+    # With the X11 driver the Wayland socket is hidden from Wine and from the programs it starts:
+    # that is the setup the tests ran in, and a Wine that sees both prefers its Wayland driver.
+    if [ "$(aegnux_wine_driver)" = x11 ]; then unset WAYLAND_DISPLAY; fi
     if [ "$(aegnux_vulkan_mode)" = dzn ]; then
         export VK_ICD_FILENAMES="$(aegnux_dzn_icd)"
         # DXVK 3.0.1 refuses a device without storageBuffer8BitAccess, and dzn reports it
@@ -317,6 +354,10 @@ aegnux_pkg_hint() {
             dnf:mingw-gcc) p=mingw64-gcc ;;
             pacman:mingw-gcc) p=mingw-w64-gcc ;;
             zypper:mingw-gcc) p=mingw64-cross-gcc ;;
+            apt:xwayland) ;;
+            dnf:xwayland) p=xorg-x11-server-Xwayland ;;
+            pacman:xwayland) p=xorg-xwayland ;;
+            zypper:xwayland) p=xwayland ;;
         esac
         case " $out " in *" $p "*) ;; *) out="$out $p" ;; esac
     done
