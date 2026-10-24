@@ -19,8 +19,11 @@ By contributing you agree that your contribution is licensed under GPL-3.0-or-la
 - Run `bash -n` on shell scripts before committing.
 - Run `tests/run_gl_window_test.sh`, `tests/run_ae_viewer_test.sh`,
   `tests/run_ae_advanced3d_test.sh`, `tests/run_ae_advanced3d_scene_test.sh`,
+  `tests/run_ae_advanced3d_size_test.sh`, `tests/run_ae_advanced3d_viewer_test.sh`,
   `tests/run_ae_effects_test.sh` and `tests/run_ae_ram_preview_test.sh` (and
-  `tests/run_dxgi_present_test.sh` for dzn changes) where your setup allows it.
+  `tests/run_dxgi_present_test.sh`, `tests/run_push_descriptor_test.sh`,
+  `tests/run_semaphore_share_test.sh` and `tests/run_d3d11_shared_texture_test.sh` for dzn
+  changes) where your setup allows it.
 - Do not commit Adobe files, logs with personal data or local paths.
 
 ## Reporting problems

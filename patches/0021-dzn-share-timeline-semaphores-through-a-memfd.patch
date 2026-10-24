@@ -1,0 +1,532 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: NuxFX contributors
+Date: Sat, 24 Oct 2026 21:50:00 +0300
+Subject: [PATCH] dzn: share timeline semaphores between devices through a memfd
+
+WSL's Direct3D 12 creates a shared handle for a fence but cannot open it:
+ID3D12Device::OpenSharedHandle(IID_ID3D12Fence) fails with E_INVALIDARG for
+every combination of flags, devices and duplicated handles (shared heaps and
+shared committed resources open fine). vkImportSemaphoreFdKHR, which Wine's
+win32u calls for vkImportSemaphoreWin32HandleKHR, therefore returned
+VK_ERROR_INVALID_EXTERNAL_HANDLE for every semaphore, and DXVK threw a
+DxvkError("Failed to import timeline semaphore") out of
+ID3D11Device1::OpenSharedResource1 when a shared texture came with a keyed
+mutex. After Effects does not catch it: "After Effects error: Crash in
+progress. Last logged message was: <3D.Tiling>" in the Advanced 3D viewer.
+
+A timeline semaphore that is exported or imported as an opaque fd now keeps
+its highest signalled value in one page of a memfd. The exported fd is the
+memfd, every importer maps the page, and a fence of the importing device
+starts at the shared value.
+
+- A CPU signal raises the value in the page.
+- A CPU wait, vkGetSemaphoreCounterValue and a queue wait look at the page as
+  well as at the fence of their own device. A CPU wait on a shared semaphore
+  polls (50 us growing to 1 ms) instead of waiting for the fence event.
+- A GPU signal on a shared semaphore is queued for a small helper thread that
+  copies the value into the page once the fence has reached it.
+- A queue wait on a value that the page has not reached blocks the submitting
+  thread until another device has signalled it, then raises the local fence.
+- vkImportSemaphoreFdKHR keeps a duplicate of the fd (the runtime closes the
+  original; an imported semaphore can be exported again) and no longer
+  releases the old fence before the new one exists: a failed import left a
+  dangling fence that was released a second time when the semaphore was
+  destroyed.
+
+This is what DXVK needs for the semaphore of a keyed mutex (CPU signal and CPU
+wait) and for CPU waits on a shared D3D11 fence.
+---
+
+diff --git a/src/microsoft/vulkan/dzn_device.c b/src/microsoft/vulkan/dzn_device.c
+index 0b00936..0f210f1 100644
+--- a/src/microsoft/vulkan/dzn_device.c
++++ b/src/microsoft/vulkan/dzn_device.c
+@@ -2106,6 +2106,14 @@ dzn_queue_sync_wait(struct dzn_queue *queue, const struct vk_sync_wait *wait)
+ 
+    assert(sync->fence != NULL);
+ 
++#ifndef _WIN32
++   if (sync->shared && value > 0) {
++      VkResult result = dzn_sync_prepare_gpu_wait(sync, value);
++      if (result != VK_SUCCESS)
++         return result;
++   }
++#endif
++
+    if (value > 0 && FAILED(ID3D12CommandQueue_Wait(queue->cmdqueue, sync->fence, value)))
+       return vk_error(device, VK_ERROR_UNKNOWN);
+ 
+@@ -2130,6 +2138,11 @@ dzn_queue_sync_signal(struct dzn_queue *queue, const struct vk_sync_signal *sign
+    if (FAILED(ID3D12CommandQueue_Signal(queue->cmdqueue, sync->fence, value)))
+       return vk_error(device, VK_ERROR_UNKNOWN);
+ 
++#ifndef _WIN32
++   if (sync->shared)
++      dzn_sync_gpu_signal_queued(sync, value);
++#endif
++
+    return VK_SUCCESS;
+ }
+ 
+diff --git a/src/microsoft/vulkan/dzn_private.h b/src/microsoft/vulkan/dzn_private.h
+index e721a7f..ccd1892 100644
+--- a/src/microsoft/vulkan/dzn_private.h
++++ b/src/microsoft/vulkan/dzn_private.h
+@@ -1304,12 +1304,25 @@ struct dzn_event {
+    ID3D12Fence *fence;
+ };
+ 
++struct dzn_shared_counter;
++
+ struct dzn_sync {
+    struct vk_sync vk;
+    ID3D12Fence *fence;
+    HANDLE export_handle;
++#ifndef _WIN32
++   /* Highest signalled value, shared with the other users of an exported or imported
++    * semaphore (see dzn_sync.c). NULL for a semaphore that is not shared. */
++   struct dzn_shared_counter *shared;
++   int shared_fd;
++#endif
+ };
+ 
++#ifndef _WIN32
++VkResult dzn_sync_prepare_gpu_wait(struct dzn_sync *sync, uint64_t value);
++void dzn_sync_gpu_signal_queued(struct dzn_sync *sync, uint64_t value);
++#endif
++
+ extern const struct vk_sync_type dzn_sync_type;
+ 
+ struct dzn_query {
+diff --git a/src/microsoft/vulkan/dzn_sync.c b/src/microsoft/vulkan/dzn_sync.c
+index 48dff7b..3dcf9ab 100644
+--- a/src/microsoft/vulkan/dzn_sync.c
++++ b/src/microsoft/vulkan/dzn_sync.c
+@@ -31,8 +31,144 @@
+ #include "util/os_time.h"
+ 
+ #ifndef _WIN32
++#include <errno.h>
++#include <fcntl.h>
++#include <pthread.h>
++#include <stdatomic.h>
+ #include <sys/eventfd.h>
++#include <sys/mman.h>
++#include <sys/stat.h>
++#include <time.h>
++#include <unistd.h>
+ #include <libsync.h>
++
++/* WSL's Direct3D 12 creates a shared handle for a fence but cannot open one
++ * (ID3D12Device::OpenSharedHandle fails with E_INVALIDARG), so a fence cannot move an
++ * opaque fd from one VkDevice to another. A timeline semaphore that is exported or imported
++ * therefore also keeps its highest signalled value in one page of a memfd. The fd is what the
++ * export returns; every importer maps the page.
++ *
++ *  - A CPU signal raises the value in the page.
++ *  - A CPU wait, vkGetSemaphoreCounterValue and a queue wait look at the page as well as at the
++ *    fence of their own device.
++ *  - A GPU signal on a shared semaphore is queued for a helper thread that copies the value into
++ *    the page when the fence has reached it.
++ *  - A queue wait on a value that the page has not reached yet blocks the submitting thread until
++ *    it has, and then raises the fence of the waiting device.
++ *
++ * This is enough for what DXVK does with the semaphore of a keyed mutex (CPU signal, CPU wait)
++ * and for CPU waits on a shared D3D11 fence. */
++#define DZN_SHARED_COUNTER_MAGIC 0x315f4d4553445a44ull /* "DZSEM_1" */
++
++struct dzn_shared_counter {
++   uint64_t magic;
++   _Atomic uint64_t value;
++};
++
++struct dzn_gpu_signal {
++   struct dzn_sync *sync;
++   uint64_t value;
++};
++
++static pthread_mutex_t dzn_gpu_signal_lock = PTHREAD_MUTEX_INITIALIZER;
++static pthread_cond_t dzn_gpu_signal_cond = PTHREAD_COND_INITIALIZER;
++static struct dzn_gpu_signal *dzn_gpu_signals;
++static uint32_t dzn_gpu_signal_count, dzn_gpu_signal_capacity;
++static bool dzn_gpu_signal_thread_started;
++
++static void
++dzn_shared_publish(struct dzn_sync *dsync, uint64_t value)
++{
++   struct dzn_shared_counter *shared = dsync->shared;
++   uint64_t old = atomic_load_explicit(&shared->value, memory_order_relaxed);
++
++   while (old < value &&
++          !atomic_compare_exchange_weak_explicit(&shared->value, &old, value,
++                                                 memory_order_release, memory_order_relaxed))
++      ;
++}
++
++static void
++dzn_shared_release(struct dzn_sync *dsync)
++{
++   if (!dsync->shared)
++      return;
++
++   pthread_mutex_lock(&dzn_gpu_signal_lock);
++   for (uint32_t i = 0; i < dzn_gpu_signal_count;) {
++      if (dzn_gpu_signals[i].sync == dsync)
++         dzn_gpu_signals[i] = dzn_gpu_signals[--dzn_gpu_signal_count];
++      else
++         i++;
++   }
++   pthread_mutex_unlock(&dzn_gpu_signal_lock);
++
++   munmap(dsync->shared, 4096);
++   dsync->shared = NULL;
++   if (dsync->shared_fd >= 0)
++      close(dsync->shared_fd);
++   dsync->shared_fd = -1;
++}
++
++/* Copies the values of GPU signals into the shared pages once the fences have reached them. */
++static void *
++dzn_gpu_signal_thread(void *arg)
++{
++   (void)arg;
++
++   pthread_mutex_lock(&dzn_gpu_signal_lock);
++   for (;;) {
++      while (dzn_gpu_signal_count == 0)
++         pthread_cond_wait(&dzn_gpu_signal_cond, &dzn_gpu_signal_lock);
++
++      for (uint32_t i = 0; i < dzn_gpu_signal_count;) {
++         struct dzn_gpu_signal *entry = &dzn_gpu_signals[i];
++         if (ID3D12Fence_GetCompletedValue(entry->sync->fence) >= entry->value) {
++            dzn_shared_publish(entry->sync, entry->value);
++            *entry = dzn_gpu_signals[--dzn_gpu_signal_count];
++         } else {
++            i++;
++         }
++      }
++
++      if (dzn_gpu_signal_count > 0) {
++         pthread_mutex_unlock(&dzn_gpu_signal_lock);
++         struct timespec ts = { 0, 200000 };
++         nanosleep(&ts, NULL);
++         pthread_mutex_lock(&dzn_gpu_signal_lock);
++      }
++   }
++   return NULL;
++}
++
++void
++dzn_sync_gpu_signal_queued(struct dzn_sync *sync, uint64_t value)
++{
++   pthread_mutex_lock(&dzn_gpu_signal_lock);
++
++   if (dzn_gpu_signal_count == dzn_gpu_signal_capacity) {
++      uint32_t capacity = dzn_gpu_signal_capacity ? dzn_gpu_signal_capacity * 2 : 16;
++      struct dzn_gpu_signal *entries =
++         realloc(dzn_gpu_signals, capacity * sizeof(*entries));
++      if (!entries) {
++         pthread_mutex_unlock(&dzn_gpu_signal_lock);
++         return;
++      }
++      dzn_gpu_signals = entries;
++      dzn_gpu_signal_capacity = capacity;
++   }
++   dzn_gpu_signals[dzn_gpu_signal_count++] = (struct dzn_gpu_signal) { sync, value };
++
++   if (!dzn_gpu_signal_thread_started) {
++      pthread_t thread;
++      if (pthread_create(&thread, NULL, dzn_gpu_signal_thread, NULL) == 0) {
++         pthread_detach(thread);
++         dzn_gpu_signal_thread_started = true;
++      }
++   }
++   pthread_cond_signal(&dzn_gpu_signal_cond);
++   pthread_mutex_unlock(&dzn_gpu_signal_lock);
++}
+ #endif
+ 
+ static VkResult
+@@ -43,8 +179,15 @@ dzn_sync_init(struct vk_device *device,
+    struct dzn_sync *dsync = container_of(sync, struct dzn_sync, vk);
+    struct dzn_device *ddev = container_of(device, struct dzn_device, vk);
+ 
++#ifdef _WIN32
+    D3D12_FENCE_FLAGS flags = (sync->flags & VK_SYNC_IS_SHAREABLE) ?
+       D3D12_FENCE_FLAG_SHARED : D3D12_FENCE_FLAG_NONE;
++#else
++   /* A shared semaphore does not use a shared fence, see the comment at the top. */
++   D3D12_FENCE_FLAGS flags = D3D12_FENCE_FLAG_NONE;
++   dsync->shared = NULL;
++   dsync->shared_fd = -1;
++#endif
+ 
+    if (FAILED(ID3D12Device1_CreateFence(ddev->dev, initial_value,
+                                         flags,
+@@ -61,11 +204,15 @@ dzn_sync_finish(struct vk_device *device,
+ {
+    struct dzn_sync *dsync = container_of(sync, struct dzn_sync, vk);
+ 
+-   ID3D12Fence_Release(dsync->fence);
++   if (dsync->fence)
++      ID3D12Fence_Release(dsync->fence);
++   dsync->fence = NULL;
+ 
+ #ifdef _WIN32
+    if (dsync->export_handle)
+       CloseHandle(dsync->export_handle);
++#else
++   dzn_shared_release(dsync);
+ #endif
+ }
+ 
+@@ -82,6 +229,11 @@ dzn_sync_signal(struct vk_device *device,
+    if (FAILED(ID3D12Fence_Signal(dsync->fence, value)))
+       return vk_error(device, VK_ERROR_OUT_OF_DEVICE_MEMORY);
+ 
++#ifndef _WIN32
++   if (dsync->shared)
++      dzn_shared_publish(dsync, value);
++#endif
++
+    return VK_SUCCESS;
+ }
+ 
+@@ -93,6 +245,18 @@ dzn_sync_get_value(struct vk_device *device,
+    struct dzn_sync *dsync = container_of(sync, struct dzn_sync, vk);
+ 
+    *value = ID3D12Fence_GetCompletedValue(dsync->fence);
++
++#ifndef _WIN32
++   if (dsync->shared) {
++      /* The fence of this device may be ahead (a GPU signal) or behind (a signal from
++       * another device) of the shared page. */
++      dzn_shared_publish(dsync, *value);
++      uint64_t shared = atomic_load_explicit(&dsync->shared->value, memory_order_acquire);
++      if (shared > *value)
++         *value = shared;
++   }
++#endif
++
+    return VK_SUCCESS;
+ }
+ 
+@@ -105,6 +269,11 @@ dzn_sync_reset(struct vk_device *device,
+    if (FAILED(ID3D12Fence_Signal(dsync->fence, 0)))
+       return vk_error(device, VK_ERROR_OUT_OF_DEVICE_MEMORY);
+ 
++#ifndef _WIN32
++   if (dsync->shared)
++      atomic_store_explicit(&dsync->shared->value, 0, memory_order_release);
++#endif
++
+    return VK_SUCCESS;
+ }
+ 
+@@ -127,6 +296,14 @@ dzn_sync_move(struct vk_device *device,
+    ID3D12Fence_Release(ddst->fence);
+    ddst->fence = dsrc->fence;
+    dsrc->fence = new_fence;
++
++#ifndef _WIN32
++   dzn_shared_release(ddst);
++   ddst->shared = dsrc->shared;
++   ddst->shared_fd = dsrc->shared_fd;
++   dsrc->shared = NULL;
++   dsrc->shared_fd = -1;
++#endif
+    return VK_SUCCESS;
+ }
+ 
+@@ -139,6 +316,45 @@ dzn_sync_wait(struct vk_device *device,
+ {
+    struct dzn_device *ddev = container_of(device, struct dzn_device, vk);
+ 
++#ifndef _WIN32
++   /* Shared semaphores: the value that counts is the larger one of the fence and the shared
++    * page, so poll both instead of waiting for the fence event. */
++   bool any_shared = false;
++   for (uint32_t i = 0; i < wait_count; i++) {
++      struct dzn_sync *sync = container_of(waits[i].sync, struct dzn_sync, vk);
++      any_shared |= sync->shared != NULL;
++   }
++
++   if (any_shared) {
++      uint64_t delay_ns = 50000;
++
++      for (;;) {
++         uint32_t satisfied = 0;
++
++         for (uint32_t i = 0; i < wait_count; i++) {
++            struct dzn_sync *sync = container_of(waits[i].sync, struct dzn_sync, vk);
++            uint64_t target = (sync->vk.flags & VK_SYNC_IS_TIMELINE) ? waits[i].wait_value : 1;
++            uint64_t value;
++
++            dzn_sync_get_value(device, waits[i].sync, &value);
++            if (value >= target)
++               satisfied++;
++         }
++
++         if ((wait_flags & VK_SYNC_WAIT_ANY) ? satisfied > 0 : satisfied == wait_count)
++            return VK_SUCCESS;
++
++         if (abs_timeout_ns != OS_TIMEOUT_INFINITE && os_time_get_nano() >= abs_timeout_ns)
++            return VK_TIMEOUT;
++
++         struct timespec ts = { 0, (long)delay_ns };
++         nanosleep(&ts, NULL);
++         if (delay_ns < 1000000)
++            delay_ns *= 2;
++      }
++   }
++#endif
++
+ #ifdef _WIN32
+    HANDLE event = CreateEventA(NULL, false, false, NULL);
+    if (event == NULL)
+@@ -279,6 +495,57 @@ dzn_sync_prep_win32_export(struct vk_device *device, struct vk_sync *sync,
+    return VK_SUCCESS;
+ }
+ #else
++static struct dzn_shared_counter *
++dzn_shared_counter_map(int fd)
++{
++   struct stat st;
++
++   if (fstat(fd, &st) != 0 || st.st_size < (off_t)sizeof(struct dzn_shared_counter))
++      return NULL;
++
++   void *map = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
++   if (map == MAP_FAILED)
++      return NULL;
++
++   struct dzn_shared_counter *shared = map;
++   if (shared->magic != DZN_SHARED_COUNTER_MAGIC) {
++      munmap(map, 4096);
++      return NULL;
++   }
++   return shared;
++}
++
++/* Returns the memfd of a semaphore and creates it on the first call. */
++static VkResult
++dzn_sync_make_shared(struct vk_device *device, struct dzn_sync *dsync)
++{
++   if (dsync->shared)
++      return VK_SUCCESS;
++
++   int fd = memfd_create("dzn-timeline-semaphore", MFD_CLOEXEC);
++   if (fd < 0)
++      return vk_error(device, VK_ERROR_OUT_OF_HOST_MEMORY);
++   if (ftruncate(fd, 4096) != 0) {
++      close(fd);
++      return vk_error(device, VK_ERROR_OUT_OF_HOST_MEMORY);
++   }
++
++   void *map = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
++   if (map == MAP_FAILED) {
++      close(fd);
++      return vk_error(device, VK_ERROR_OUT_OF_HOST_MEMORY);
++   }
++
++   struct dzn_shared_counter *shared = map;
++   shared->magic = DZN_SHARED_COUNTER_MAGIC;
++   atomic_store_explicit(&shared->value, ID3D12Fence_GetCompletedValue(dsync->fence),
++                         memory_order_release);
++
++   dsync->shared_fd = fd;
++   dsync->shared = shared;
++   return VK_SUCCESS;
++}
++
+ static VkResult
+ dzn_sync_import_opaque_fd(struct vk_device *device, struct vk_sync *sync,
+                           int fd)
+@@ -286,11 +553,32 @@ dzn_sync_import_opaque_fd(struct vk_device *device, struct vk_sync *sync,
+    struct dzn_sync *dsync = container_of(sync, struct dzn_sync, vk);
+    struct dzn_device *ddev = container_of(device, struct dzn_device, vk);
+ 
+-   dzn_sync_finish(device, sync);
++   /* The runtime closes fd after a successful import; keep a duplicate so that the
++    * semaphore can be exported again. */
++   int own_fd = fcntl(fd, F_DUPFD_CLOEXEC, 3);
++   if (own_fd < 0)
++      return vk_error(device, VK_ERROR_OUT_OF_HOST_MEMORY);
+ 
+-   HANDLE handle = (HANDLE)(intptr_t)fd;
+-   if (FAILED(ID3D12Device_OpenSharedHandle(ddev->dev, handle, &IID_ID3D12Fence, (void **)&dsync->fence)))
++   struct dzn_shared_counter *shared = dzn_shared_counter_map(own_fd);
++   if (!shared) {
++      close(own_fd);
+       return vk_error(device, VK_ERROR_INVALID_EXTERNAL_HANDLE);
++   }
++
++   uint64_t value = atomic_load_explicit(&shared->value, memory_order_acquire);
++   ID3D12Fence *fence;
++   if (FAILED(ID3D12Device1_CreateFence(ddev->dev, value, D3D12_FENCE_FLAG_NONE,
++                                        &IID_ID3D12Fence, (void **)&fence))) {
++      munmap(shared, 4096);
++      close(own_fd);
++      return vk_error(device, VK_ERROR_OUT_OF_DEVICE_MEMORY);
++   }
++
++   /* The import replaces the payload: let go of the old fence and page. */
++   dzn_sync_finish(device, sync);
++   dsync->fence = fence;
++   dsync->shared = shared;
++   dsync->shared_fd = own_fd;
+    return VK_SUCCESS;
+ }
+ 
+@@ -298,14 +586,45 @@ static VkResult
+ dzn_sync_export_opaque_fd(struct vk_device *device, struct vk_sync *sync, int *fd)
+ {
+    struct dzn_sync *dsync = container_of(sync, struct dzn_sync, vk);
+-   struct dzn_device *ddev = container_of(device, struct dzn_device, vk);
+-   HANDLE handle;
+-   if (FAILED(ID3D12Device_CreateSharedHandle(ddev->dev, (ID3D12DeviceChild *)dsync->fence,
+-                                              NULL, GENERIC_ALL, NULL, &handle)))
+-      return vk_error(device, VK_ERROR_OUT_OF_DEVICE_MEMORY);
+-   *fd = (int)(intptr_t)handle;
++
++   VkResult result = dzn_sync_make_shared(device, dsync);
++   if (result != VK_SUCCESS)
++      return result;
++
++   int dup_fd = fcntl(dsync->shared_fd, F_DUPFD_CLOEXEC, 3);
++   if (dup_fd < 0)
++      return vk_error(device, VK_ERROR_OUT_OF_HOST_MEMORY);
++
++   *fd = dup_fd;
+    return VK_SUCCESS;
+ }
++
++/* A queue wait on a shared semaphore: the fence of this device has to reach the value that the
++ * shared page holds before the GPU waits for it. Blocks until another device has signalled the
++ * value, like a wait that is signalled late would stall the queue. */
++VkResult
++dzn_sync_prepare_gpu_wait(struct dzn_sync *sync, uint64_t value)
++{
++   uint64_t delay_ns = 50000;
++
++   for (;;) {
++      uint64_t completed = ID3D12Fence_GetCompletedValue(sync->fence);
++      if (completed >= value)
++         return VK_SUCCESS;
++
++      uint64_t shared = atomic_load_explicit(&sync->shared->value, memory_order_acquire);
++      if (shared >= value) {
++         if (FAILED(ID3D12Fence_Signal(sync->fence, shared)))
++            return VK_ERROR_UNKNOWN;
++         return VK_SUCCESS;
++      }
++
++      struct timespec ts = { 0, (long)delay_ns };
++      nanosleep(&ts, NULL);
++      if (delay_ns < 1000000)
++         delay_ns *= 2;
++   }
++}
+ #endif
+ 
+ const struct vk_sync_type dzn_sync_type = {

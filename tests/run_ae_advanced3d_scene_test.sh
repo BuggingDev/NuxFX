@@ -7,7 +7,8 @@
 # the pictures in Python:
 #   cam     a camera moved by 200 px in z changes the picture
 #   light   a point light changes the picture, and the lit side is brighter than with the light off
-#   shadow  an Environment light with Casts Shadows on puts a darker region on a wall
+#   shadow  an Environment light with Casts Shadows on puts a darker region on a wall, and the text
+#           that casts it is drawn
 #   text    3D text with Extrusion Depth > 0 (Advanced 3D) differs from Classic 3D (ADBE Advanced 3d)
 #   env     an Environment light (LightType.ENVIRONMENT) lights a 3D text layer
 #   stress  30 small 3D solids at random z positions under 2 point lights
@@ -233,12 +234,15 @@ function addEnvLight(comp, name) {
     return lt;
 }
 
-// Casts Shadows is a checkbox on a light (0/1 or true/false) and a menu on a layer (1 = Off, 2 = On).
+// Casts Shadows is a checkbox on a light (0/1 or true/false) and a menu on a layer. On the menu
+// 2 is "Only": the layer is not drawn and only its shadow is. 1 draws the layer and casts the
+// shadow, so the caster is set to 1 (an earlier version of this test used 2, and the text in the
+// shadow pictures was never drawn).
 function setCastsShadows(layer, on, isLight) {
     var p = findProp(layer, "Casts Shadows");
     var tag = (isLight ? "lightshadow_" : "layershadow_") + (on ? "on" : "off");
     if (!p) { NOTE += " " + tag + "_notfound"; return; }
-    var got = isLight ? setTry(p, [on ? 1 : 0, on], tag) : setTry(p, [on ? 2 : 1], tag);
+    var got = isLight ? setTry(p, [on ? 1 : 0, on], tag) : setTry(p, [1], tag);
     if (got === null) { NOTE += " " + tag + "_notset"; }
     else { NOTE += " " + tag + "_" + p.value; }
 }
@@ -272,7 +276,6 @@ function buildShadow(on) {
     // A wall behind the text receives the shadow; the text is the extruded caster.
     var wall = solid3d(comp, "wall", [0.85, 0.85, 0.85], 1200, 1200, [W / 2, H / 2, 300], [0, 0, 0]);
     findProp(wall, "Accepts Shadows").setValue(1);
-    findProp(wall, "Casts Shadows").setValue(1); // 1 = Off for a layer
     var tl = comp.layers.addText("SHADOW");
     tl.threeDLayer = true;
     var doc = tl.property("ADBE Text Properties").property("ADBE Text Document");
@@ -317,8 +320,7 @@ function buildText(renderer) {
 function buildEnv(on) {
     var comp = newComp("a3d env " + (on ? "on" : "off"), "ADBE Calder");
     // A diffuse wall and extruded text are lit by the default environment map.
-    var wall = solid3d(comp, "wall", [0.55, 0.55, 0.6], 1200, 1200, [W / 2, H / 2, 300], [0, 0, 0]);
-    findProp(wall, "Casts Shadows").setValue(1); // 1 = Off for a layer
+    solid3d(comp, "wall", [0.55, 0.55, 0.6], 1200, 1200, [W / 2, H / 2, 300], [0, 0, 0]);
     var tl = comp.layers.addText("IBL");
     tl.threeDLayer = true;
     var doc = tl.property("ADBE Text Properties").property("ADBE Text Document");
@@ -558,18 +560,20 @@ def read_png(path):
 
 
 def stats(rgb):
-    magenta = lit = lum = 0
+    magenta = lit = lum = red = 0
     seen = set()
     n = len(rgb) // 3
     for i in range(0, len(rgb), 3):
         r, g, b = rgb[i], rgb[i + 1], rgb[i + 2]
         if r > 200 and g < 60 and b > 200:
             magenta += 1
+        if r - max(g, b) > 25:
+            red += 1
         if r + g + b > 48:
             lit += 1
         seen.add((r >> 4, g >> 4, b >> 4))
         lum += 299 * r + 587 * g + 114 * b
-    return {'magenta': magenta, 'colours': len(seen), 'lit': lit, 'mean_lum': lum / (1000.0 * n)}
+    return {'magenta': magenta, 'colours': len(seen), 'lit': lit, 'red': red, 'mean_lum': lum / (1000.0 * n)}
 
 
 def compare(a, b):
@@ -685,10 +689,13 @@ if 'shadow' in WANTED and pic('shadow_on') and pic('shadow_off') and 'lightshado
     feature['shadow'] = ('NOT SCRIPTABLE', 'the Environment light Casts Shadows property refuses the script values (see the diagnostics)')
 elif 'shadow' in WANTED and pic('shadow_on') and pic('shadow_off'):
     c = compare(pic('shadow_on'), pic('shadow_off'))
-    lo, lf = stats(pic('shadow_on'))['mean_lum'], stats(pic('shadow_off'))['mean_lum']
-    ok = c['darker'] >= 150 and lo < lf
-    feature['shadow'] = ('OK' if ok else 'FAIL', 'darker px %d bbox %s, mean lum on %.1f off %.1f'
-                         % (c['darker'], c['bbox'], lo, lf))
+    so, sf = stats(pic('shadow_on')), stats(pic('shadow_off'))
+    lo, lf = so['mean_lum'], sf['mean_lum']
+    # The caster has to be drawn as well as its shadow (Casts Shadows "Only" hides the layer). The
+    # wall is grey, so the reddish pixels are the text (about 10000 in both pictures).
+    ok = c['darker'] >= 150 and lo < lf and min(so['red'], sf['red']) >= 2000
+    feature['shadow'] = ('OK' if ok else 'FAIL', 'darker px %d bbox %s, mean lum on %.1f off %.1f, text px on %d off %d'
+                         % (c['darker'], c['bbox'], lo, lf, so['red'], sf['red']))
 if 'text' in WANTED and pic('text_calder') and pic('text_classic'):
     c = compare(pic('text_calder'), pic('text_classic'))
     ok = c['mean'] >= 1.0 and c['big'] >= 300

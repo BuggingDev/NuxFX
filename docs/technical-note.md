@@ -207,3 +207,79 @@ expected rotated solid. Advanced 3D (`ADBE Calder`) gives a solid magenta frame.
    patch 18 fixes that. Forcing Direct3D 12 feature level 12_0, unhiding the NVIDIA
    vendor ID in DXGI, the display mode, the project GPU mode and lavapipe did not
    change the result.
+
+## 12. Crash in the Advanced 3D viewer (October 2026)
+
+Symptom: with a 1920x1080 Advanced 3D comp in the Composition panel, a click on the Draft 3D button
+ended in "After Effects error: Crash in progress. Last logged message was: <828> <3D.Tiling> <5>
+Tile size Y: 689" a few seconds later. The same comp rendered with `saveFrameToPng` never crashed.
+The Wine log (`err+seh` on) had no exception line, the kernel log no OOM kill, and DXVK logged no
+error. It reproduced on every click, with the stock driver and with the series up to patch 20.
+
+1. The crash box is AE's own. Its crash reporter (Sentry breadcrumbs and event tags in
+   `AppData/Local/Temp/Adobe/After Effects/24.0/SentryIO-db`) records the box on the display thread
+   with a two-frame stack (`AfterFXLib.dll` and `kernelbase.dll`: the unhandled-exception filter).
+   The event tags (`gpu-mem-overcommitted false`, `PanicSave true`) rule out a memory limit.
+2. The process was still alive behind the box. `winedbg --command "info proc"` gave its pid;
+   a script with `attach 0x<pid>`, `bt all` and `detach` printed the stack of every thread (the PE
+   frames are unwound from the unwind tables, so no Adobe disassembly is involved). The thread that
+   showed the box went: `ntdll` exception dispatch, `kernelbase` `RaiseException`, then four frames
+   in `d3d11.dll`, then `videoframe.dll`, `AfterFXLib.dll`, `aedisplay.dll`. `d3d11.dll` is DXVK 3.0.1.
+3. The frames of `d3d11.dll` were identified with `objdump -d -M intel` on the DLL (image base from
+   `objdump -x`, return addresses from the stack, strings at rip-relative operands read from `.rdata`).
+   The innermost frame loads `0x20474343` (the code of a MinGW C++ throw) and calls `RaiseException`,
+   the next is `__cxa_throw`, the third allocates a 32-byte exception object, builds it from the string
+   "Failed to import timeline semaphore" and throws it. Source of DXVK v3.0.1: that string is in
+   `DxvkFence::DxvkFence` (`dxvk_fence.cpp`), reached from `D3D11Device::OpenSharedResource1`
+   (`d3d11_device.cpp`), which creates the fence of a keyed mutex outside of its `try` block. AE's
+   frames are MSVC code and do not catch a GCC exception, so the unhandled-exception filter ran.
+4. Why the import fails. Wine's trace channels `+d3dkmt,+vulkan,+server` show, for the same call
+   sequence in a 100-line D3D11 program (`tests/d3d11_shared_texture_test.c`), that Wine's `win32u`
+   finds the shared object, gets a file descriptor for it (`get_handle_fd` succeeds) and then calls the
+   host driver's `vkImportSemaphoreFdKHR`, which returns an error. A native Vulkan program
+   (`tests/semaphore_share_test.c`) shows the same without Wine: export works, import returns
+   `VK_ERROR_INVALID_EXTERNAL_HANDLE`, for a duplicate of the fd, for the fd itself and on the same
+   device. A debug print in `dzn_sync_import_opaque_fd` showed `OpenSharedHandle` returning
+   0x80070057 (E_INVALIDARG).
+5. A raw Direct3D 12 program (WSL's `libd3d12.so` and `libdxcore.so` through `dlopen`, DirectX-Headers)
+   made the limit visible:
+
+   | Object | CreateSharedHandle | OpenSharedHandle on another device |
+   |---|---|---|
+   | fence, `D3D12_FENCE_FLAG_SHARED` | ok | E_INVALIDARG (also on the same device, with a duplicate of the handle, with `SHARED_CROSS_ADAPTER`, as `ID3D12Fence1`) |
+   | fence, `OpenSharedHandleByName` | ok | E_NOTIMPL |
+   | committed texture, `D3D12_HEAP_FLAG_SHARED` | ok | ok |
+   | heap, `D3D12_HEAP_FLAG_SHARED` | ok | ok |
+
+   A native Vulkan program that exports the memory of an image on one device and imports it on another
+   reads the pixels back correctly (also with `oldLayout` UNDEFINED), so dzn's memory sharing is fine.
+6. What was rejected: dzn without `VK_KHR_external_semaphore_fd` and without `import_opaque_fd` and
+   `export_opaque_fd` in its sync type: DXVK logs "Exporting semaphores of type 2 not supported by
+   device" and then dies with "page fault on execute access to 0" in the keyed mutex path (a null
+   function pointer). An import that succeeds without sharing would let the first `AcquireSync` wait
+   forever, because it waits (without a timeout) for a fence value that the other device never
+   signals. A DXVK 3.0.1 rebuilt with a `try`/`catch` around `createFence` returns E_FAIL from
+   `OpenSharedResource1` and AE survives the click.
+7. Fix (patch 21): the value of an exported or imported timeline semaphore lives in a memfd page, as
+   described in `docs/known-issues.md`. DXVK only needs CPU signals and CPU waits for a keyed mutex.
+
+Result on the same machine and driver otherwise unchanged:
+
+| Test | Without patch 21 | With patch 21 |
+|---|---|---|
+| `tests/run_semaphore_share_test.sh` | import returns -1000072003, FAIL | 17 checks pass |
+| `tests/run_d3d11_shared_texture_test.sh`, plain | pass | pass |
+| `tests/run_d3d11_shared_texture_test.sh`, keyed mutex | `terminate called after throwing an instance of 'dxvk::DxvkError'` | the second device reads (255, 128, 64, 255) |
+| `tests/run_ae_advanced3d_viewer_test.sh` | error box after the first click | no box, the 3D text is on screen after both clicks |
+
+Side findings of the same work:
+
+- `CompItem.draft3d` and `app.executeCommand` do not take the path of the Draft 3D button (the
+  menu command id is not found), so a script cannot reproduce the crash; the viewer test clicks.
+- A first demo scene rendered as a dark gradient. The cause was the scene, not the renderer: a spot
+  light aimed away from the text and `Casts Shadows` = 2 on the text. On the `Casts Shadows` menu of a
+  layer, 2 is "Only": the layer is not drawn, only its shadow (1 and 3 draw it and cast). The shadow
+  scene of `run_ae_advanced3d_scene_test.sh` used 2 and never drew its text; it uses 1 now.
+- An earlier note said that shared D3D11 textures were not coherent between two devices. The test
+  cleared the texture with `ClearRenderTargetView`, which DXVK keeps back until the image is used on
+  the same device. With `UpdateSubresource`, a draw or a copy the second device reads the data.

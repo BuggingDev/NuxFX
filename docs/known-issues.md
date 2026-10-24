@@ -13,8 +13,6 @@ Status date: 2026-10-24. Patch numbers refer to `patches/`.
   for VK_NULL_HANDLE descriptors. DXVK 3.0.1 refuses to create an adapter without
   these bits, so they stay on. An application that really uses either feature gets
   wrong results.
-- **VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE is ignored (patch 11).** The static
-  strides from the pipeline are used instead.
 - **Robustness bits (patch 15)** robustImageAccess, robustBufferAccess2,
   robustImageAccess2 and EXT_robustness2 are advertised without a dedicated test.
   D3D12's default out-of-range behaviour is assumed to match.
@@ -22,8 +20,14 @@ Status date: 2026-10-24. Patch numbers refer to `patches/`.
   fields are not reported separately.
 - **Sparse resources** are not supported; the sparse memory requirement queries
   return zero entries.
-- **Dynamic vertex strides, sample locations and other dynamic state** beyond what
-  dzn already handled are not covered by tests.
+- **Sample locations and other dynamic state** beyond what dzn already handled are not
+  covered by tests. (Dynamic vertex strides work since patch 19.)
+- **Shared timeline semaphores (patch 21) are an emulation.** WSL's Direct3D 12 cannot open
+  a shared fence, so a semaphore that is exported or imported as an opaque fd keeps its value
+  in a memfd page; see "Fixed: crash in the Advanced 3D viewer (patch 21)". CPU signals and
+  waits, queue signals and queue waits cross between devices, but a queue wait for a value
+  that another device signals later blocks the submitting thread until it arrives, and a
+  semaphore cannot be shared with another process.
 
 ## Workarounds (labelled in the code and commit messages)
 
@@ -34,7 +38,8 @@ Status date: 2026-10-24. Patch numbers refer to `patches/`.
   (`AEGNUX_APIVER_LAYER=1`): with the previous default layer path it was never
   loaded and AE still worked, so patch 04 alone is enough.
 - **KHR_external_memory_win32 and KHR_external_semaphore_win32** are turned off in
-  `_WIN32` builds (patch 15). This is not exercised on Linux.
+  `_WIN32` builds (patch 15). This is not exercised on Linux, where Wine builds its Win32
+  variants on dzn's `KHR_external_memory_fd` and `KHR_external_semaphore_fd`.
 
 ## Advanced 3D
 
@@ -279,10 +284,73 @@ renderers; they do not affect Advanced 3D. The earlier scene test used those two
 reported "not scriptable"; the fixed test uses an Environment light with `Casts Shadows` and
 `Light Intensity` instead.
 
+The `Casts Shadows` menu of a layer: 2 is "Only" (the layer is not drawn, only its shadow), 1 and 3
+draw the layer and it casts a shadow. The scene test set the text to 2, so the text of the shadow
+scene was never drawn (the shadow was there, and the test only measured the shadow). It sets 1 now
+and checks that the caster is drawn.
+
 The CUDA/D3D interop gaps in the nvcuda bridge (`cuGraphicsD3D11RegisterResource` returns
-CUDA_ERROR_NOT_SUPPORTED) were not exercised by these scenes. Shared D3D11 textures between two devices are not coherent
-under DXVK on Wine here (a standalone test: the second device never sees the first one's
-writes, and `DxvkError` with keyed mutexes); AE did not hit this in the tested scene.
+CUDA_ERROR_NOT_SUPPORTED) were not exercised by these scenes.
+
+An earlier version of this section said that shared D3D11 textures between two devices are not
+coherent under DXVK on Wine. That was a test artifact: the test cleared the texture with
+`ClearRenderTargetView`, and DXVK holds a clear back until the image is used on the same device,
+so the second device read zeros. A texture that is written with `UpdateSubresource`, a draw or a
+copy is read correctly by the second device. The keyed mutex case did fail, and it is what crashed
+the Advanced 3D viewer at 1080p: see the next section.
+
+## Fixed: crash in the Advanced 3D viewer (patch 21)
+
+- Symptom: with an Advanced 3D comp in the Composition panel (1920x1080, extruded text, lights and
+  an Environment light with shadows), After Effects stopped a few seconds after a full-quality
+  render, when the Draft 3D button of the viewer was clicked. The error box said `After Effects
+  error: Crash in progress. Last logged message was: <828> <3D.Tiling> <5> Tile size Y: 689` and
+  offered to save the project. The Wine log had no exception line, the kernel log no out-of-memory
+  kill and the DXVK log no error. The process had grown from 3 to 9 GB, which made it look like
+  "AE crashes when memory fills", but no limit was reached. The message is only the last line AE
+  logged before the crash; it is not the cause. `saveFrameToPng` of the same comp never crashed.
+- Where it died (no disassembly of Adobe code): AE's crash report (Sentry breadcrumbs in
+  `AppData/Local/Temp/Adobe/After Effects/24.0/SentryIO-db`) put the error box on the display
+  thread, called from the unhandled-exception filter. `winedbg` attached to the running process
+  and printed that thread's stack: `RaiseException` called by `d3d11.dll` (DXVK 3.0.1) with the
+  code 0x20474343 (a MinGW C++ `throw`), through `__cxa_throw`, `DxvkFence::DxvkFence` and
+  `DxvkDevice::createFence`, from the code of `ID3D11Device1::OpenSharedResource1`. Reading the
+  string that the throwing block loads gives the message "Failed to import timeline semaphore".
+  AE's frames are MSVC code and do not catch a GCC exception, so the filter ran.
+- Why DXVK throws: when a shared texture comes with a keyed mutex, `OpenSharedResource1` imports
+  the semaphore of the mutex with `vkImportSemaphoreWin32HandleKHR` and does not wrap
+  `createFence` in its `try`/`catch` (the later texture creation is wrapped). That is a bug in
+  DXVK 3.0.1 that only shows when the driver refuses the import. Wine's `win32u` implements
+  the call on the host driver's `vkImportSemaphoreFdKHR`, and dzn answered
+  `VK_ERROR_INVALID_EXTERNAL_HANDLE` to every import, even of an fd it had just exported
+  (a native Vulkan test shows it without Wine). The reason is below dzn:
+  `ID3D12Device::OpenSharedHandle(IID_ID3D12Fence)` fails with E_INVALIDARG on WSL for every
+  combination of fence flags, devices and duplicated handles, while shared heaps and shared
+  committed textures open fine. WSL's Direct3D 12 can create a shared fence handle but not open one.
+- Why the viewer needs it: the viewer shows the frames of Advanced 3D through shared D3D11
+  textures with a keyed mutex (Wine logs `NtGdiDdDDICreateKeyedMutex2` and
+  `NtGdiDdDDIOpenSyncObjectFromNtHandle` when AE creates the first one). Plain shared textures
+  (no keyed mutex) worked all along.
+- Fix: patch 21 changes `dzn_sync.c` (and the two queue functions that wait for and signal a
+  semaphore). A timeline semaphore that is exported as an opaque fd now keeps its highest
+  signalled value in one page of a memfd; the exported fd is the memfd, and an importer maps the
+  page and starts a fence of its own device at the shared value. CPU signals raise the value, CPU
+  waits, `vkGetSemaphoreCounterValue` and queue waits look at the page as well as at the fence, a
+  small helper thread copies the value of a GPU signal into the page when the fence reaches it, and
+  a queue wait for a value that nobody has signalled yet blocks the submitting thread until it
+  arrives. The patch also fixes a double release: a failed import released the fence before it
+  made the new one, so destroying the semaphore released it a second time.
+- Tests (each fails without the patch and passes with it, same machine, same DXVK):
+  `tests/run_semaphore_share_test.sh` (two Vulkan devices share a timeline semaphore: import
+  refused with `VK_ERROR_INVALID_EXTERNAL_HANDLE` before, 17 checks pass after),
+  `tests/run_d3d11_shared_texture_test.sh` (two D3D11 devices share a texture with and without a
+  keyed mutex: the keyed case ends with `terminate called after throwing an instance of
+  'dxvk::DxvkError'` before, both read the written pixel after) and
+  `tests/run_ae_advanced3d_viewer_test.sh` (After Effects shows a 1080p Advanced 3D scene and the
+  test clicks Draft 3D twice: an error box before, no box and the 3D text on screen after).
+- A DXVK 3.0.1 rebuilt with a `try`/`catch` around `createFence` (`OpenSharedResource1` then returns
+  E_FAIL) also keeps AE alive after the click. That is not a fix for the viewer, which needs the
+  import to work, but upstream DXVK should catch the exception; it is not part of this repository.
 
 Earlier notes in this file about the plugin scan ("No loaders recognized this plugin"),
 the missing D3D11 work in the apitrace and the ruled-out feature levels did not turn out to

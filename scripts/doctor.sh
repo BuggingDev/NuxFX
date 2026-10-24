@@ -67,7 +67,17 @@ if [ "$MODE" = dzn ]; then
     ICD=$(aegnux_dzn_icd)
     if [ -f "$ICD" ]; then
         LIB=$(sed -n 's/.*"library_path": *"\([^"]*\)".*/\1/p' "$ICD")
-        if [ -f "$LIB" ]; then ok "dzn: $LIB"; else fail "$ICD points to a missing library: $LIB"; fi
+        if [ -f "$LIB" ]; then
+            ok "dzn: $LIB"
+            # Patch 21 names its memfd "dzn-timeline-semaphore"; the string is in the library.
+            if grep -aq 'dzn-timeline-semaphore' "$LIB"; then
+                ok "dzn has patch 21 (shared timeline semaphores)"
+            else
+                warn "dzn lacks patch 21 (shared timeline semaphores): After Effects crashes when the viewer shows an Advanced 3D comp; rebuild with scripts/build_dzn.sh"
+            fi
+        else
+            fail "$ICD points to a missing library: $LIB"
+        fi
         API=$(sed -n 's/.*"api_version": *"\([^"]*\)".*/\1/p' "$ICD")
         case "$API" in
             1.3.*|1.4.*|1.[5-9].*) ok "dzn ICD api_version: $API" ;;
