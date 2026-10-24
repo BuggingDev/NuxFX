@@ -38,11 +38,11 @@ cd NuxFX
 | Start and run After Effects 2024 (24.6.2) | Works | Adobe's files are used as they are |
 | Composition panel | Works | OpenGL display, from the first start |
 | CUDA | Works | After Effects uses CUDA acceleration; Direct3D interop is not implemented |
-| Advanced 3D renderer (`ADBE Calder`) | Works | Tested with a tilted 3D solid; lights, shadows, models and environment maps were not tested |
+| Advanced 3D renderer (`ADBE Calder`) | Works | Cameras, lights, extruded 3D text, Environment-light shadows and IBL pass (`tests/run_ae_advanced3d_scene_test.sh`); imported 3D models were not tested |
 | Classic 3D renderer | Works | Panel and render queue |
 | Direct3D 11 windows | Works | Patch 17 (`tests/run_dxgi_present_test.sh`) |
-| Effects on the GPU | Partly | Only Invert and solid layers were checked |
-| RAM preview (space) | Unreliable | The playhead stops after 1 to 3 seconds; see [known limitations](#known-limitations) |
+| Effects on the GPU | Works | 40 effects render in CUDA and software mode; 4 showed no visible change with the test parameter, mean difference at most 0.7/255 (`tests/run_ae_effects_test.sh`) |
+| RAM preview (space) | Partly | The picture plays at real time, but the timeline playhead stays at the start; see [known limitations](#known-limitations) |
 | Cinema 4D renderer (`ADBE Ernst`) | Does not work | After Effects' plugin scan does not load the plugin |
 
 The match name `ADBE Advanced 3d` is the classic renderer. Advanced 3D is `ADBE Calder`.
@@ -180,6 +180,7 @@ is not there either, the default in `scripts/common.sh` is used.
 | `DZN_PREFIX` | `$AEGNUX_HOME/dzn` | dzn install, written by `build_dzn.sh` |
 | `AEGNUX_GL_PREFIX` | `$AEGNUX_HOME/mesa-gl` | Install of `scripts/build_gl.sh` (Mesa's EGL and d3d12 OpenGL driver). Used first when it exists on a Direct3D 12 host |
 | `AEGNUX_SYSTEM_GL` | `0` | `1` uses the distribution's OpenGL even when `AEGNUX_GL_PREFIX` exists |
+| `AEGNUX_REP_MOVSB` | `0` | `1` keeps glibc's `memcpy` on `rep movsb`. By default, on a Direct3D 12 host, `aegnux_env` sets a glibc tunable that avoids it: with `rep movsb` RAM preview ran at a fifth of real time |
 | `AEGNUX_DISABLE_CUDA` | `0` | `1` turns CUDA off for After Effects. It then renders in software and reports Advanced 3D as unsupported |
 | `AEGNUX_DIRECTX_DISPLAY` | `0` | `1` keeps After Effects' DirectX display (the panel stays empty while CUDA is used) |
 | `AEGNUX_HIDE_HOME_SCREEN` | `1` | `0` keeps After Effects' Home screen setting. On a first start `ae_prefs.sh` writes a preferences file with the Home screen off |
@@ -196,6 +197,9 @@ The code and the configuration keep the `aegnux` name (`AEGNUX_*`, `~/.local/sha
 tests/run_gl_window_test.sh        # an OpenGL child window reaches the screen (no After Effects needed)
 tests/run_ae_viewer_test.sh        # the Composition panel shows a rendered comp
 tests/run_ae_advanced3d_test.sh    # Advanced 3D renders a tilted 3D solid; the project uses CUDA
+tests/run_ae_advanced3d_scene_test.sh  # cameras, lights, shadows, Environment-light IBL, text and stress
+tests/run_ae_ram_preview_test.sh   # RAM preview plays a 10 s comp at about real time
+tests/run_ae_effects_test.sh       # 40 common effects render in CUDA and in software mode
 tests/run_push_descriptor_test.sh  # dzn push descriptors reach a compute shader (patch 20)
 tests/run_dxgi_present_test.sh     # a Direct3D 11 swapchain shows its backbuffer (patch 17)
 scripts/gpu_sniffer_test.sh        # dzn entrypoint audit, then After Effects' GPUSniffer test
@@ -216,6 +220,20 @@ scripts/gpu_sniffer_test.sh        # dzn entrypoint audit, then After Effects' G
   solid, saves frame 0 as a PNG and passes if the renderer stays `ADBE Calder`, the project uses
   CUDA and the PNG shows red and no magenta. The result travels in the name of a comp in a project
   the script saves, because After Effects scripts may not write files by default.
+- `run_ae_advanced3d_scene_test.sh` starts After Effects once and builds six small comps: a moving
+  camera, a point light, an Environment light that casts shadows, extruded 3D text against Classic
+  3D, an Environment light that lights a wall and text, and a 30-solid stress scene. Each frame
+  must be valid (no magenta, not one colour) and each feature must change the picture in the
+  expected direction. `AEGNUX_A3D_SCENES=cam,light,...` runs a subset. About 4 minutes.
+- `run_ae_ram_preview_test.sh` builds a 10 s comp with a moving, rotating layer, presses space in
+  the Composition panel and follows the picture in screenshots (the position of the layer is the
+  comp time on screen). It prints the playback speed and passes at 0.8 times real time or more.
+  The playhead of the timeline does not move during a preview (see the limitations). About 3 minutes.
+- `run_ae_effects_test.sh` applies 40 common effects (blur, glow, colour, noise, distort, stylize
+  and transform effects), each with one non-default parameter, renders frame 0 of each in CUDA
+  mode and again in software mode, and compares both with a comp without the effect. It passes
+  when every applied effect renders in both modes; the table shows which effects change the
+  picture and how far the two modes differ. About 8 minutes.
 - `run_push_descriptor_test.sh` needs the Vulkan headers and loader (`libvulkan-dev`),
   `glslangValidator` and the dzn build. `gpu_sniffer_test.sh` needs the dzn build and the After
   Effects files.
@@ -233,6 +251,7 @@ distribution.
 | "Advanced 3D is not supported by the current hardware" | After Effects needs CUDA and its accelerated display. Check that `AEGNUX_DISABLE_CUDA` is not set and that `doctor.sh` reports CUDA. Do not switch off After Effects' accelerated display or hide OpenGL from Wine |
 | Advanced 3D frames are magenta after an earlier failed render | A stale disk cache serves the old frame. Empty it once (Preferences > Media & Disk Cache > Empty Disk Cache) |
 | "System Compatibility Report: Unsupported Video Driver" on every start (Direct3D 12 route) | Wine reported a second GPU. The scripts set `MESA_LOADER_DRIVER_OVERRIDE=d3d12`, which prevents it. If it shows anyway, click "Continue with known issues" |
+| RAM preview plays at a fifth of real time (about 7 frames a second) on the Direct3D 12 route | glibc's `memcpy` uses `rep movsb`, which is very slow on the shared buffers of Mesa's d3d12 driver. The scripts set `GLIBC_TUNABLES=glibc.cpu.x86_rep_movsb_threshold=0x40000000`; `AEGNUX_REP_MOVSB` must not be `1`, and After Effects must be started through `scripts/launch_ae.sh` (or `aegnux_env`) |
 | The first start shows nothing but an empty Home screen | `ae_prefs.sh` switches the Home screen off; run `scripts/launch_ae.sh` instead of `AfterFX.exe` directly |
 
 More causes, evidence and the history of each fix: [docs/known-issues.md](docs/known-issues.md).
@@ -262,15 +281,27 @@ docs/             manual-installation.md  the installer's steps, by hand
 
 ## Known limitations
 
-- **RAM preview** (space): the playhead stops after 1 to 3 seconds of the first preview and later
-  previews may not move. The cause is not known; `docs/known-issues.md` lists what did not change it.
-- **Cinema 4D renderer** (`ADBE Ernst`) does not load.
+- **RAM preview** (space) plays at real time in the Composition panel, but the playhead of the
+  timeline stays at the start while it plays, and `comp.time` does too. The cause is not known;
+  `docs/known-issues.md` has what was found.
+- **Cinema 4D renderer** (`ADBE Ernst`): After Effects asks for Cinema 4D 2024 (it looks for
+  `cineware.dll` in `C:\Program Files\Maxon Cinema 4D 2024`) and shows a warning when the renderer
+  is selected. The prefix has no such folder, so the renderer is not usable; it was not tested
+  with Cinema 4D installed.
 - **CUDA** works for After Effects' acceleration and for Advanced 3D, but sharing images between
   CUDA and Direct3D is not implemented (`cuGraphicsD3D11RegisterResource` returns
   `CUDA_ERROR_NOT_SUPPORTED`).
-- **Advanced 3D** was tested with one tilted solid. Lights, shadows, models and environment
-  textures were not.
-- **Effects:** only Invert and solid layers were checked, and no large projects.
+- **Advanced 3D** was tested with six scenes (camera, point light, Environment-light shadow,
+  extruded text, Environment-light IBL and a 30-solid stress scene). Imported 3D models
+  (GLTF/GLB/OBJ/FBX) were not tested. In AE 24.6 only an Environment light casts shadows;
+  point and spot lights illuminate without shadows. The old Layer > Environment Layer switch
+  belongs to the Cinema 4D renderer and does not affect Advanced 3D.
+- **Effects:** 40 common effects were applied with one non-default parameter each and rendered
+  without error in CUDA mode and in software mode; the two modes differ by less than 0.7 of 255
+  on average (`tests/run_ae_effects_test.sh`). Four of them (Curves, Polar Coordinates, Stroke,
+  Vibrance) did not change the test picture with the parameter used, so they are untested in
+  effect. Large projects, footage, text and shape layers, and third-party plug-ins were not
+  tested.
 - **Not verified:** bare-metal Linux with a native GPU driver, AMD and Intel GPUs, After Effects
   versions other than 24.6.2, and distributions not listed above.
 - **dzn** is not a conformant Vulkan implementation. `VK_EXT_transform_feedback` is a no-op stub,

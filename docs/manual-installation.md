@@ -146,6 +146,12 @@ tree and installs them under `$AEGNUX_GL_PREFIX` (default `$AEGNUX_HOME/mesa-gl`
 puts that folder first in `LD_LIBRARY_PATH`, so Wine's OpenGL does not depend on the
 distribution's Mesa. `AEGNUX_SYSTEM_GL=1` uses the distribution's OpenGL instead.
 
+On these hosts `aegnux_env` also sets `GLIBC_TUNABLES=glibc.cpu.x86_rep_movsb_threshold=0x40000000`.
+Without it glibc's `memcpy` copies with `rep movsb` from 4 KB up, which ran at about 45 MB/s on
+the shared-memory buffers that Mesa's d3d12 driver fills with the viewer's frames, and RAM preview
+played at a fifth of real time. `AEGNUX_REP_MOVSB=1` keeps glibc's default. If you start After
+Effects without `aegnux_env`, export the variable yourself.
+
 ## 4. Wine runner
 
 The runner is **Wine TkG (staging) 11.12**, a prebuilt wow64 build by Kron4ek:

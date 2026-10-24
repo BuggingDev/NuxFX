@@ -265,10 +265,22 @@ the composite pass (`draw verts=6` into a magenta-cleared 640x480 image, blendin
 and the vertex buffer holding a valid fullscreen quad, and dzn received v1 binds with
 stride 0.
 
-Still open for Advanced 3D: nothing known with this scene. More complex scenes (lights,
-shadows, models, environment textures) were not tested. The CUDA/D3D interop gaps in the
-nvcuda bridge (`cuGraphicsD3D11RegisterResource` returns CUDA_ERROR_NOT_SUPPORTED) were
-not exercised by this scene. Shared D3D11 textures between two devices are not coherent
+Scene coverage (`tests/run_ae_advanced3d_scene_test.sh`, one After Effects run, all six
+scenes pass on AE 24.6.2 with Calder and CUDA): two-node cameras, point lights, shadows from
+an Environment light, extruded 3D text, image-based lighting from an Environment light, and a
+30-solid stress scene. Every frame is valid (no magenta, not one colour). Imported 3D models
+(GLTF/GLB/OBJ/FBX) were not tested.
+
+Two AE 24.6 behaviours look like renderer failures but are not. Only an Environment light
+(`LightType.ENVIRONMENT`) casts shadows in Advanced 3D; the `Casts Shadows` property of a point
+or spot light is hidden, so scripting it fails. The old Layer > Environment Layer switch and
+the `ADBE Reflection Coefficient` material property belong to the Cinema 4D / ray-traced
+renderers; they do not affect Advanced 3D. The earlier scene test used those two features and
+reported "not scriptable"; the fixed test uses an Environment light with `Casts Shadows` and
+`Light Intensity` instead.
+
+The CUDA/D3D interop gaps in the nvcuda bridge (`cuGraphicsD3D11RegisterResource` returns
+CUDA_ERROR_NOT_SUPPORTED) were not exercised by these scenes. Shared D3D11 textures between two devices are not coherent
 under DXVK on Wine here (a standalone test: the second device never sees the first one's
 writes, and `DxvkError` with keyed mutexes); AE did not hit this in the tested scene.
 
@@ -309,16 +321,49 @@ be the cause: the renderer loads and runs, and the Ignore flag does not matter.
   WSL distributions (Ubuntu 22.04 and 26.04, Debian 12, Rocky and Alma, Leap, Kali, ...) use
   the same four package families but were not run.
 
-## Open: playback stops after the first preview
+## Fixed: RAM preview played at a fifth of real time (glibc `rep movsb`)
 
-- Symptom: RAM preview (space) moves the playhead for about 1 to 3 seconds of comp time and
-  then stops. Later previews in the same session may not move at all. The stop key works,
-  and AE logs `DoPreview_Complete` for every job.
+- Symptom: RAM preview (space) moved the picture of the Composition panel at about 7 frames a
+  second for a 30 fps comp, a fifth of real time (8 s of a 10 s comp after 40 s). Earlier notes
+  called it "playback stops after 1 to 3 seconds"; that came from another measurement. The
+  picture of the panel is the reference now, because the playhead of the timeline does not move
+  at all (see the open issue below). `tests/run_ae_ram_preview_test.sh` follows the picture in
+  screenshots.
+- Where the time went: the "Display Thread" of `AfterFX.exe` used 95 % of a CPU, the main thread
+  8 %. A ptrace sampler (instruction pointer and stack words only, no disassembly of Adobe code)
+  put 89 % of the samples on one instruction in glibc, the `rep movsb` of
+  `__memmove_avx_unaligned_erms`. The callers on the stack are Mesa's `util_copy_rect`,
+  `util_copy_box`, `u_default_texture_subdata` and `st_TexSubImage`: every frame that After
+  Effects hands to `glTexSubImage2D` is copied into the d3d12 upload buffer one row at a time
+  (rows of 4 to 8 KB). Source and destination are `/dev/zero (deleted)` mappings (shared
+  anonymous memory: two 4 MB frame buffers and a 3 MB upload buffer). The thread had no page
+  faults and 2 % system time, so the copy itself is slow, not the allocation.
+- Measured inside the running After Effects (an `LD_PRELOAD` shim that times the 2 KB to 64 KB
+  `memcpy` calls and changes the copy loop every 4 s): `rep movsb` 43 to 47 MB/s, a plain AVX2
+  loop 2.2 GB/s, AVX2 with non-temporal stores 1.7 to 1.9 GB/s, non-temporal loads 0.8 GB/s, a
+  64-bit loop 0.42 GB/s. The preview ran at 0.99 times real time while any loop other than
+  `rep movsb` was active.
+- Fix: `aegnux_env` sets `GLIBC_TUNABLES=glibc.cpu.x86_rep_movsb_threshold=0x40000000` under
+  WSL, so glibc's `memcpy` stays on its vector loops for copies up to 1 GiB.
+  `AEGNUX_REP_MOVSB=1` keeps glibc's default. On the test machine the preview ran at 0.20 to 0.22
+  times real time before and at 0.99 after (comp 1280x720, 30 fps, 10 s, Gaussian Blur on the
+  moving layer). `glibc.cpu.hwcaps=-ERMS,-FSRM` gave the same speed, but it turns the fast string
+  instructions off for every copy, so it was not used.
+- Not known: why `rep movsb` is so slow on these mappings. The test machine has an Intel Core
+  i5-12400F (flags `erms` and `fsrm`), WSL2 kernel 6.18.54.1 and glibc 2.39. Other CPUs and
+  hosts were not tried. The setting only moves copies from `rep movsb` to glibc's vector loops.
+
+## Open: the playhead of the timeline does not move during a RAM preview
+
+- Symptom: while a RAM preview plays (the Composition panel shows the motion) the blue
+  playhead of the timeline stays at the start, and `comp.time` read from a script stays at the
+  start too. The green cache bar fills. `tests/run_ae_ram_preview_test.sh` prints "timeline
+  playhead: moved 0 px" in every run, at every playback speed.
 - The wait: a worker thread that `AfterFXLib.dll` creates while AE starts its audio and video
   renderers (`AudioRendererImpl Init starting up`, about 11 seconds after start in a
   timestamped run) waits for a critical section inside `AfterFXLib.dll` (image offset
   `0x209F0C8`). The Wine log shows it as `wait timed out ... blocked by <main thread>`. It
-  appears in every run listed below.
+  appears in every run.
 - The owner: the main thread. Right after it creates the worker (call site `AfterFXLib.dll`
   offset `0x3DCC1C`), it enters a message loop called from `AfterFXLib.dll` (offset
   `0x3C6F2C`). Inside that loop it processes `WM_TIMER` and `WM_PAINT` and does not release
@@ -326,24 +371,15 @@ be the cause: the renderer loads and runs, and the Ignore flag does not matter.
 - Relay logs: `wine.inf` writes a `RelayExclude` list into the prefix. It includes
   `RtlEnterCriticalSection`, `RtlTryEnterCriticalSection` and `RtlLeaveCriticalSection`, so
   relay logs show no critical-section calls. `doctor.sh` warns about it.
-- Stop position in seconds of comp time, first play and later plays. The wait was present in
-  every run:
-  - standard setup: 1.1 to 1.3, then no movement
-  - `dxgi.hideNvidiaGpu = False`: 1.13
-  - CUDA off (`AEGNUX_DISABLE_CUDA=1`, which also sets `DZN_DEBUG=nocudauuid`): 2.5 and 5.4;
-    2.6 and 2.6; 2.57 and 5.47
-  - Wine builtin Direct3D (`d3d10core`, `d3d11`, `d3d12` and `dxgi` loaded as builtin, checked
-    with a `loaddll` trace), no DXVK, vkd3d-proton, dzn or CUDA bridge: 2.6 and 5.5
-  - process pinned to one CPU (`taskset -c 0`): 1.03, 1.13, 1.10
-  - `mmdevapi` disabled: 1.17, 1.27, 1.17
-  - `Player.xRendererEntryRefactor=false`: 1.13
-  - `AE.UseBigMutexR=false`: 1.20, 1.27, 1.23
-  - `AE.DeadlockDetectionEnabledR=true`: 1.23, 1.30, 1.17; AE logged no lock diagnostics
-  - WinTab32 disabled: 1.17
-  - GPU renderer and DirectX display off: 2.37 and 2.33 (the first play did not move)
-  - multithreaded rendering, read-ahead, speculative rendering and blit queue off: 1.10
-- Status: the cause is not known, and what the worker waits for is not known. The patch series
-  does not trigger the wait: it is also present with builtin Direct3D, where no dzn code runs.
+- The wait was present with every variant tried: standard setup, `dxgi.hideNvidiaGpu = False`,
+  CUDA off (`AEGNUX_DISABLE_CUDA=1`), Wine's builtin Direct3D without DXVK, vkd3d-proton, dzn or
+  the CUDA bridge, the process pinned to one CPU, `mmdevapi` disabled, `Player.xRendererEntryRefactor=false`,
+  `AE.UseBigMutexR=false`, `AE.DeadlockDetectionEnabledR=true` (AE logged no lock diagnostics),
+  WinTab32 disabled, the GPU renderer and DirectX display off, and multithreaded rendering,
+  read-ahead, speculative rendering and the blit queue off. The patch series does not
+  trigger the wait: it is also present with builtin Direct3D, where no dzn code runs.
+- Status: not known whether this loop is why the playhead does not repaint, and what the worker
+  waits for is not known either.
 
 ## Open: patch 15 advertises features and extensions without tests
 
