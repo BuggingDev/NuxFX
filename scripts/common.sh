@@ -9,7 +9,7 @@
 
 AEGNUX_CONFIG="${AEGNUX_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/aegnux/aegnux.conf}"
 # Keys read from the config file. Other lines are ignored; doctor.sh reports them.
-AEGNUX_CONFIG_KEYS="AEGNUX_HOME AEGNUX_LAYER_DIR AEGNUX_LOG_DIR AEGNUX_TEST_DIR AEGNUX_VULKAN AEGNUX_DISABLE_CUDA AEGNUX_DIRECTX_DISPLAY AEGNUX_GL_PREFIX AEGNUX_SYSTEM_GL AEGNUX_HIDE_HOME_SCREEN AEGNUX_COACHMARKS AEGNUX_EXTRA_OVERRIDES AEGNUX_WINEDEBUG AEGNUX_APIVER_LAYER WINE_BIN_DIR WINEPREFIX AE_DIR MESA_SRC MESA_BUILD DZN_PREFIX AE_VERSION"
+AEGNUX_CONFIG_KEYS="AEGNUX_HOME AEGNUX_LAYER_DIR AEGNUX_LOG_DIR AEGNUX_TEST_DIR AEGNUX_VULKAN AEGNUX_DISABLE_CUDA AEGNUX_DIRECTX_DISPLAY AEGNUX_GL_PREFIX AEGNUX_SYSTEM_GL AEGNUX_REP_MOVSB AEGNUX_HIDE_HOME_SCREEN AEGNUX_COACHMARKS AEGNUX_EXTRA_OVERRIDES AEGNUX_WINEDEBUG AEGNUX_APIVER_LAYER WINE_BIN_DIR WINEPREFIX AE_DIR MESA_SRC MESA_BUILD DZN_PREFIX AE_VERSION"
 if [ -f "$AEGNUX_CONFIG" ]; then
     while IFS= read -r _aegnux_line || [ -n "$_aegnux_line" ]; do
         _aegnux_line=${_aegnux_line%$'\r'}
@@ -169,6 +169,18 @@ EOF
     # waits for a click). Naming the driver stops Mesa from building a screen for vgem, so the
     # device is skipped; the display's own EGL path (software winsys) does not change.
     if is_wsl && [ -z "${MESA_LOADER_DRIVER_OVERRIDE:-}" ]; then export MESA_LOADER_DRIVER_OVERRIDE=d3d12; fi
+    # After Effects shows every frame with glTexSubImage2D, and Mesa's d3d12 driver copies the
+    # frame into its upload buffer one row (about 5 KB) at a time. From 4 KB up glibc's memcpy
+    # uses "rep movsb", and on the shared-memory mappings of the Direct3D 12 route that
+    # instruction runs at about 45 MB/s (vector loops: about 2 GB/s). RAM preview then showed
+    # about 7 frames a second, a fifth of real time. Raising glibc's rep movsb threshold keeps
+    # memcpy on the vector loops. AEGNUX_REP_MOVSB=1 keeps glibc's default.
+    if is_wsl && [ "${AEGNUX_REP_MOVSB:-0}" != 1 ]; then
+        case ":${GLIBC_TUNABLES:-}:" in
+            *:glibc.cpu.x86_rep_movsb_threshold=*) ;;
+            *) export GLIBC_TUNABLES="${GLIBC_TUNABLES:+$GLIBC_TUNABLES:}glibc.cpu.x86_rep_movsb_threshold=0x40000000" ;;
+        esac
+    fi
 }
 
 # Package manager family of this distribution: apt, dnf, pacman, zypper or other.

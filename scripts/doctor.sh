@@ -134,6 +134,11 @@ if is_wsl; then
         if [ -e "$d/d3d12_dri.so" ]; then GL="$d/d3d12_dri.so"; break; fi
     done
     if [ -n "$GL" ]; then ok "the distribution's Mesa D3D12 GL driver: $GL"; elif [ ! -f "$AEGNUX_GL_PREFIX/lib/libEGL.so.1" ]; then warn "Mesa's d3d12_dri.so not found: AE's OpenGL display will use llvmpipe (slow); install your distribution's Mesa DRI drivers or run scripts/build_gl.sh"; fi
+    if [ "${AEGNUX_REP_MOVSB:-0}" = 1 ]; then
+        warn "AEGNUX_REP_MOVSB=1: glibc's memcpy keeps using rep movsb, which copies at about 45 MB/s into the d3d12 upload buffers; RAM preview plays at about a fifth of real time"
+    else
+        ok "glibc's memcpy is kept off rep movsb for Wine (GLIBC_TUNABLES, set by aegnux_env in common.sh)"
+    fi
 fi
 
 echo "Direct3D DLLs in the prefix"
