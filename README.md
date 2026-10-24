@@ -16,9 +16,16 @@ cd NuxFX
 ./install.sh
 ```
 
+![After Effects 2024 on Ubuntu 24.04: an Advanced 3D composition in the Composition panel](docs/screenshots/after-effects-advanced-3d.png)
+
+*After Effects 2024 (24.6.2) on an Ubuntu 24.04 desktop: an Advanced 3D comp with extruded text,
+two point lights and an Environment light with shadows in the Composition panel. The terminal on
+the right shows `uname -s`, `/etc/os-release`, the window manager, the GPU and the Wine build.*
+
 ## Contents
 
 - [What works](#what-works)
+- [Screenshots](#screenshots)
 - [Install](#install)
 - [Supported distributions](#supported-distributions)
 - [Using NuxFX](#using-nuxfx)
@@ -38,7 +45,8 @@ cd NuxFX
 | Start and run After Effects 2024 (24.6.2) | Works | Adobe's files are used as they are |
 | Composition panel | Works | OpenGL display, from the first start |
 | CUDA | Works | After Effects uses CUDA acceleration; Direct3D interop is not implemented |
-| Advanced 3D renderer (`ADBE Calder`) | Works | Cameras, lights, extruded 3D text, Environment-light shadows and IBL pass (`tests/run_ae_advanced3d_scene_test.sh`); imported 3D models were not tested |
+| Advanced 3D renderer (`ADBE Calder`) | Works | Cameras, lights, extruded 3D text, Environment-light shadows and IBL pass (`tests/run_ae_advanced3d_scene_test.sh`); frames from 480x270 to 1920x1080 render (`run_ae_advanced3d_size_test.sh`) and the Composition panel shows a 1080p scene (`run_ae_advanced3d_viewer_test.sh`, patch 21); imported 3D models were not tested |
+| Shared Direct3D 11 textures and keyed mutexes | Works | Patch 21; before it, After Effects crashed when the viewer showed an Advanced 3D comp (`tests/run_d3d11_shared_texture_test.sh`) |
 | Classic 3D renderer | Works | Panel and render queue |
 | Direct3D 11 windows | Works | Patch 17 (`tests/run_dxgi_present_test.sh`) |
 | Effects on the GPU | Works | 40 effects render in CUDA and software mode; 4 showed no visible change with the test parameter, mean difference at most 0.7/255 (`tests/run_ae_effects_test.sh`) |
@@ -46,6 +54,17 @@ cd NuxFX
 | Cinema 4D renderer (`ADBE Ernst`) | Does not work | After Effects' plugin scan does not load the plugin |
 
 The match name `ADBE Advanced 3d` is the classic renderer. Advanced 3D is `ADBE Calder`.
+
+## Screenshots
+
+All pictures are captures of After Effects 2024 running under Wine on a Linux desktop (Openbox, a
+panel and a wallpaper on a private X server); nothing of another desktop is in them. They are
+2560x1440 PNG files in [docs/screenshots](docs/screenshots).
+
+| | |
+|---|---|
+| ![A title composition with a Glow effect](docs/screenshots/after-effects-title.png) | ![The Effect Controls panel with the Glow effect](docs/screenshots/after-effects-effects.png) |
+| A 1080p title comp with shape layers, text and a Glow effect. | The Effect Controls panel of the same comp: Glow and its parameters. |
 
 ## Install
 
@@ -198,9 +217,13 @@ tests/run_gl_window_test.sh        # an OpenGL child window reaches the screen (
 tests/run_ae_viewer_test.sh        # the Composition panel shows a rendered comp
 tests/run_ae_advanced3d_test.sh    # Advanced 3D renders a tilted 3D solid; the project uses CUDA
 tests/run_ae_advanced3d_scene_test.sh  # cameras, lights, shadows, Environment-light IBL, text and stress
+tests/run_ae_advanced3d_size_test.sh   # Advanced 3D frames from 480x270 to 1920x1080
+tests/run_ae_advanced3d_viewer_test.sh # a 1080p Advanced 3D scene in the Composition panel; Draft 3D clicked twice (patch 21)
 tests/run_ae_ram_preview_test.sh   # RAM preview plays a 10 s comp at about real time
 tests/run_ae_effects_test.sh       # 40 common effects render in CUDA and in software mode
 tests/run_push_descriptor_test.sh  # dzn push descriptors reach a compute shader (patch 20)
+tests/run_semaphore_share_test.sh  # two Vulkan devices share a timeline semaphore (patch 21)
+tests/run_d3d11_shared_texture_test.sh  # two Direct3D 11 devices share a texture, with and without a keyed mutex (patch 21)
 tests/run_dxgi_present_test.sh     # a Direct3D 11 swapchain shows its backbuffer (patch 17)
 scripts/gpu_sniffer_test.sh        # dzn entrypoint audit, then After Effects' GPUSniffer test
 ```
@@ -225,6 +248,21 @@ scripts/gpu_sniffer_test.sh        # dzn entrypoint audit, then After Effects' G
   3D, an Environment light that lights a wall and text, and a 30-solid stress scene. Each frame
   must be valid (no magenta, not one colour) and each feature must change the picture in the
   expected direction. `AEGNUX_A3D_SCENES=cam,light,...` runs a subset. About 4 minutes.
+- `run_ae_advanced3d_size_test.sh` builds one scene (extruded text, a wall, a camera, a point light;
+  and a variant with an Environment light that casts shadows) at 480x270, 960x540, 1280x720 and
+  1920x1080, renders frame 0 of each to a PNG and checks that the picture is valid and shows the
+  text. About 2 minutes. `AEGNUX_A3D_SIZES=1920x1080` runs one size.
+- `run_ae_advanced3d_viewer_test.sh` shows a 1920x1080 Advanced 3D comp in the Composition panel
+  and clicks the Draft 3D button of the viewer twice (a script cannot take the path that the button
+  takes). It passes when After Effects is still running, no error box appeared and the orange 3D
+  text is on screen before and after. Before patch 21 the first click ended with "Crash in
+  progress". About 4 minutes.
+- `run_semaphore_share_test.sh` (no Wine, no After Effects) lets two Vulkan devices share a
+  timeline semaphore as an opaque fd: CPU signals, queue signals and queue waits must cross, and
+  an imported semaphore must be exportable again. It skips when the device has no external
+  semaphore fd support. `run_d3d11_shared_texture_test.sh` does the same one level up: two
+  Direct3D 11 devices share a texture with and without a keyed mutex, and the second device must
+  read the pixel the first one wrote.
 - `run_ae_ram_preview_test.sh` builds a 10 s comp with a moving, rotating layer, presses space in
   the Composition panel and follows the picture in screenshots (the position of the layer is the
   comp time on screen). It prints the playback speed and passes at 0.8 times real time or more.
@@ -250,6 +288,7 @@ distribution.
 | The Composition panel is empty on Arch Linux, Fedora 44 or Tumbleweed (Direct3D 12 route) | The distribution's Mesa 26 does not work with After Effects' viewer. `scripts/build_gl.sh` builds the tested Mesa 25.2.8 OpenGL stack (the installer does it); `AEGNUX_SYSTEM_GL` must not be `1` |
 | "Advanced 3D is not supported by the current hardware" | After Effects needs CUDA and its accelerated display. Check that `AEGNUX_DISABLE_CUDA` is not set and that `doctor.sh` reports CUDA. Do not switch off After Effects' accelerated display or hide OpenGL from Wine |
 | Advanced 3D frames are magenta after an earlier failed render | A stale disk cache serves the old frame. Empty it once (Preferences > Media & Disk Cache > Empty Disk Cache) |
+| "Crash in progress. Last logged message was: <3D.Tiling> ..." when an Advanced 3D comp is in the Composition panel (Direct3D 12 route) | The dzn build lacks patch 21 (shared timeline semaphores); DXVK then throws out of `OpenSharedResource1`. Run `scripts/build_dzn.sh` again; `doctor.sh` warns about an old build. `tests/run_d3d11_shared_texture_test.sh` shows it without After Effects |
 | "System Compatibility Report: Unsupported Video Driver" on every start (Direct3D 12 route) | Wine reported a second GPU. The scripts set `MESA_LOADER_DRIVER_OVERRIDE=d3d12`, which prevents it. If it shows anyway, click "Continue with known issues" |
 | RAM preview plays at a fifth of real time (about 7 frames a second) on the Direct3D 12 route | glibc's `memcpy` uses `rep movsb`, which is very slow on the shared buffers of Mesa's d3d12 driver. The scripts set `GLIBC_TUNABLES=glibc.cpu.x86_rep_movsb_threshold=0x40000000`; `AEGNUX_REP_MOVSB` must not be `1`, and After Effects must be started through `scripts/launch_ae.sh` (or `aegnux_env`) |
 | The first start shows nothing but an empty Home screen | `ae_prefs.sh` switches the Home screen off; run `scripts/launch_ae.sh` instead of `AfterFX.exe` directly |
@@ -260,7 +299,7 @@ More causes, evidence and the history of each fix: [docs/known-issues.md](docs/k
 
 ```
 install.sh        one-command installer (install.cmd starts it from Windows)
-patches/          20 patches (git format-patch) against pristine Mesa 25.2.8
+patches/          21 patches (git format-patch) against pristine Mesa 25.2.8
 scripts/          build_dzn.sh          build and install dzn (Direct3D 12 hosts)
                   build_gl.sh           build and install Mesa's EGL and d3d12 OpenGL driver
                   launch_ae.sh          start After Effects (applies ae_prefs.sh and clear_crash_state.sh)
@@ -277,6 +316,7 @@ tests/            run_*.sh and the C and GLSL sources they build
 docs/             manual-installation.md  the installer's steps, by hand
                   technical-note.md       findings and evidence, section by section
                   known-issues.md         fixed and open issues, stubs, limitations
+                  screenshots/            captures of After Effects on a Linux desktop
 ```
 
 ## Known limitations
@@ -292,10 +332,14 @@ docs/             manual-installation.md  the installer's steps, by hand
   CUDA and Direct3D is not implemented (`cuGraphicsD3D11RegisterResource` returns
   `CUDA_ERROR_NOT_SUPPORTED`).
 - **Advanced 3D** was tested with six scenes (camera, point light, Environment-light shadow,
-  extruded text, Environment-light IBL and a 30-solid stress scene). Imported 3D models
-  (GLTF/GLB/OBJ/FBX) were not tested. In AE 24.6 only an Environment light casts shadows;
-  point and spot lights illuminate without shadows. The old Layer > Environment Layer switch
-  belongs to the Cinema 4D renderer and does not affect Advanced 3D.
+  extruded text, Environment-light IBL and a 30-solid stress scene), at sizes up to 1920x1080 and in
+  the Composition panel at 1080p. Imported 3D models (GLTF/GLB/OBJ/FBX) were not tested. In AE 24.6
+  only an Environment light casts shadows; point and spot lights illuminate without shadows. The
+  old Layer > Environment Layer switch belongs to the Cinema 4D renderer and does not affect
+  Advanced 3D. On the `Casts Shadows` menu of a layer, 2 is "Only" (the layer is not drawn).
+- **Shared timeline semaphores** (patch 21) are an emulation on top of a memfd, because WSL's
+  Direct3D 12 cannot open a shared fence. A queue wait for a value that another device signals
+  later blocks the submitting thread, and a semaphore cannot be shared with another process.
 - **Effects:** 40 common effects were applied with one non-default parameter each and rendered
   without error in CUDA mode and in software mode; the two modes differ by less than 0.7 of 255
   on average (`tests/run_ae_effects_test.sh`). Four of them (Curves, Polar Coordinates, Stroke,
