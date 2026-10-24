@@ -1,6 +1,6 @@
 # Known issues and limitations
 
-Status date: 2026-10-18. Patch numbers refer to `patches/`.
+Status date: 2026-10-24. Patch numbers refer to `patches/`.
 
 ## Stubs and partial implementations
 
@@ -71,6 +71,111 @@ Status date: 2026-10-18. Patch numbers refer to `patches/`.
 - The Wine runner and the aegnux prefix. Use aegnux or your own runner.
 - The debugging instrumentation used to find the bugs (removed before the patches
   were produced).
+
+## Fixed: empty Composition panel on the first start (Debug Database)
+
+- Symptom: on a fresh install (no AE preferences folder yet) `tests/run_ae_viewer_test.sh`
+  failed on the first run and passed on the second, on the same prefix. The panel was
+  empty (the panel background, no frame) with the CUDA bridge installed.
+- Cause: `ae_prefs.sh` created a `Debug Database.txt` that held only the
+  `DS.DisableDirectXDisplay` line. AE treats a file without an `AEDebugDatabaseVersion`
+  line as out of date and writes its own defaults at start, so the flag was lost for that
+  start (the file AE wrote said `DS.DisableDirectXDisplay false`). The second run patched
+  the now versioned file and the flag held.
+- Fix: a newly created file starts with `AEDebugDatabaseVersion 2`, as AE's own file does.
+  A first run on a removed preferences folder now gives the same 256194 cyan pixels as a
+  later run.
+
+## Fixed: empty Composition panel with Mesa 26 (own OpenGL stack)
+
+- Symptom: on Arch Linux (Mesa 26.2.5) the Composition panel stayed empty (the panel
+  background, `Frame Render Time: 0ms`) although the OpenGL child window test passed and
+  the Debug Database and libXcomposite were right. Ubuntu 24.04 (Mesa 25.2.8) was fine.
+- Measured on the same Arch prefix and the same AE start: with the distribution's Mesa
+  26.2.5 the viewer test found 0 cyan pixels; with Mesa 25.2.8 (taken from Ubuntu, or built
+  from the dzn source tree) it found 78522. AE's `+wgl` call sequences were the same up to
+  the point where the Mesa 26 run stopped issuing OpenGL work (the process was idle, every
+  thread waiting in the wineserver, so it was not a hang inside Mesa). The pixel format
+  AE picks is the same configuration (24 bit depth, 8 bit stencil). What inside Mesa 26's
+  d3d12 driver is different was not found.
+- Not the cause: threaded OpenGL (`MESA_GLTHREAD=false`, `GALLIUM_THREAD=0`), the Mesa
+  shader cache, AE's preferences, the number of EGL devices.
+- Fix: `scripts/build_gl.sh` builds Mesa 25.2.8's EGL library and d3d12 driver (the same
+  tarball as dzn, about 120 MB of build files, 27 MB installed) into `$AEGNUX_GL_PREFIX`,
+  `install.sh` runs it, and `aegnux_env` puts the folder first in `LD_LIBRARY_PATH` for
+  Wine. That gives every distribution the Mesa that was tested. `AEGNUX_SYSTEM_GL=1` keeps
+  the distribution's own OpenGL.
+
+## Fixed: System Compatibility Report dialog (a second GPU)
+
+- Symptom: Adobe's System Compatibility Report ("Unsupported Video Driver" for `D3D12
+  (NVIDIA GeForce RTX 4060 Ti)`, and a CUDA 11.8 warning) opened on every start and waited
+  for a click on "Continue with known issues". Acknowledging it did not keep it away on the
+  next start. It appeared on Arch Linux, where the user could open `/dev/dri/card0`.
+- Cause: Wine makes a GPU of every EGL device. Mesa lists WSLg's `vgem` render node as a
+  second device, and when the user can open `card0` it starts that device (software
+  fallback `kms_swrast`). Wine then reported a second adapter, `D3D12 (NVIDIA GeForce RTX
+  4060 Ti)` with a generic driver version (35.0.10.1000), next to the real one, and AE's
+  NVIDIA rules matched it. (Wine source: `init_egl_devices` in `dlls/win32u/opengl.c`.)
+- Fix: `aegnux_env` sets `MESA_LOADER_DRIVER_OVERRIDE=d3d12` under WSL. Mesa cannot build
+  a screen for `vgem` with that name, so the device is skipped (one EGL device and one GPU
+  again), and the display's own EGL path does not change. `tests/run_ae_viewer_test.sh` and
+  `tests/run_ae_advanced3d_test.sh` also click the dialog if it ever shows.
+
+## Fixed: black Composition panel on Debian, Fedora and Arch (libXcomposite)
+
+- Symptom: `tests/run_ae_viewer_test.sh` found no cyan pixels. With AE's OpenGL display the
+  Composition panel was a black rectangle on Debian 13, Fedora 44 and Arch Linux, while the
+  frames rendered correctly (`saveFrameToPng` gave the same image as on Ubuntu 24.04). The
+  panel was fine on Ubuntu 24.04. With AE's software display (`GF.DisableAcceleratedDisplay`)
+  the panel was correct everywhere, but AE then reported Advanced 3D as unsupported, so that
+  was not a fix.
+- Cause: Wine opens `libXcomposite.so.1` with `dlopen`. When the library is missing, Wine
+  switches XComposite off without any message. An OpenGL child window (AE draws the panel
+  into one) is then rendered into an X window that Wine cannot redirect, and the copy to
+  the parent window is black. Ubuntu 24.04 has the library installed, the other test
+  distributions did not (Wine's package depends on it, a tarball runner does not).
+- How it was found: a 100-line Windows program (`tests/gl_window_test.c`: a window with an
+  OpenGL child window, cleared to cyan) showed the same black panel on Arch, with correct
+  `glReadPixels` values, so the fault was not in AE, in CUDA, in dzn or in Mesa's drivers.
+  These changed nothing: Mesa 25.2.8 from Ubuntu instead of Mesa 26.2.5, Ubuntu's Xvfb,
+  Xvfb without MIT-SHM, hiding `/dev/dri`, llvmpipe. Installing `libxcomposite` fixed it
+  (0 to 220032 cyan pixels, identical to Ubuntu), removing it brought the black panel back.
+  Wine's source (`dlls/winex11.drv/init.c`, `client_surface_update_offscreen`) shows the
+  dependency: offscreen client windows are redirected with `XCompositeRedirectWindow` and
+  copied with `XCopyArea`.
+- Fix: `install.sh` installs the libraries the runner opens at run time
+  (`AEGNUX_WINE_SONAMES` in `scripts/common.sh`, with the package name for apt and pacman;
+  dnf and zypper install by library name), `scripts/doctor.sh` fails when one is missing
+  and says what it is needed for, and `tests/run_gl_window_test.sh` checks that an OpenGL
+  child window reaches the screen (no After Effects needed).
+- The earlier notes here (Mesa versions, `AEGNUX_GPU_DISPLAY`, hiding EGL, the software
+  display) were wrong about the cause and are gone.
+
+## Fixed: descriptor bind points and push descriptors (patch 20)
+
+- Symptom: with the CUDA bridge installed, the Composition panel showed a small black
+  rectangle instead of the comp (`tests/run_ae_viewer_test.sh`: no cyan pixels) on a fresh
+  Ubuntu 24.04. Without the bridge (AE renders in software) the panel was correct, which
+  made the bridge look like the cause.
+- Cause (from the patch and `tests/run_push_descriptor_test.sh`): dzn picked one bind
+  point (compute or graphics) in `vkCmdBindDescriptorSets2KHR` and
+  `vkCmdPushDescriptorSet2KHR`, pushed template descriptors into the graphics bind point
+  only, and the non-2 `vkCmdPushDescriptorSetKHR` that vkd3d-proton calls resolved to the
+  loader's no-op stub, so descriptors were silently dropped. Which of these calls the
+  panel depends on was not isolated; the effect was measured with and without the patch.
+- Fix: patch 20 updates every bind point that `stageFlags` selects, stores the template's
+  bind point, accepts push-descriptor update templates and adds the non-2 KHR wrappers
+  (the core 1.4 names stay hidden while dzn reports 1.3). It also returns early when push
+  constants arrive before a pipeline bind, passes the plane aspect through
+  `GetDeviceImageMemoryRequirements` and stops advertising
+  `vulkanMemoryModelAvailabilityVisibilityChains`.
+- `build_dzn.sh` writes `api_version` 1.3.318 into the ICD manifest, and
+  `tests/run_push_descriptor_test.sh` checks that a compute shader sees a pushed buffer.
+- Checked on Ubuntu 24.04 under WSL2 with the OpenGL display on: the viewer test goes from
+  0 to 256194 cyan pixels when only this patch is added to the dzn build. The
+  `run_push_descriptor_test.sh` check passes with the patch on Ubuntu 24.04, Debian 13,
+  Fedora 44 and Arch Linux.
 
 ## Fixed: VIEWPORT_WITH_COUNT and SCISSOR_WITH_COUNT (patch 17)
 
@@ -184,11 +289,25 @@ be the cause: the renderer loads and runs, and the Ignore flag does not matter.
   `wineserver -k`, so first-run tips ("Properties Panel", "Review workspace") come
   back in every such session. Quit AE normally to keep their state.
 
+## openSUSE under WSL: Xvfb conflicts with the WSL pattern
+
+- `zypper install xorg-x11-server-Xvfb` stops with a conflict with
+  `patterns-wsl-tmpfiles` (that package links `/tmp/.X11-unix` to WSLg's folder). Removing the
+  pattern would break WSLg's X11 sockets, so do not take the "deinstall" answer. Only the
+  tests need Xvfb. What worked on Tumbleweed: install its libraries
+  (`zypper install 'libpixman-1.so.0()(64bit)' 'libXfont2.so.2()(64bit)' 'libXdmcp.so.6()(64bit)'
+  'libXau.so.6()(64bit)' xkbcomp xkeyboard-config`), download the package with `zypper download
+  xorg-x11-server-Xvfb`, unpack it with `rpm2cpio ... | cpio -idm` and copy `usr/bin/Xvfb` to a
+  folder in your `PATH`.
+
 ## Untested platforms
 
-- Native Linux hosts and distributions other than Ubuntu 24.04: the scripts detect
-  them (no dzn, host Vulkan and GL drivers, distribution-specific install hints in
-  doctor.sh), but nothing was run there.
+- Native Linux hosts: the scripts detect them (no dzn, host Vulkan and GL drivers,
+  distribution-specific install hints in doctor.sh), but nothing was run there.
+- Under WSL2 the installer and every test were run on fresh images of Ubuntu 24.04,
+  Debian 13, Fedora 44, Arch Linux and openSUSE Tumbleweed (see the README table). Other
+  WSL distributions (Ubuntu 22.04 and 26.04, Debian 12, Rocky and Alma, Leap, Kali, ...) use
+  the same four package families but were not run.
 
 ## Open: playback stops after the first preview
 

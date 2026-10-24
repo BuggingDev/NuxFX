@@ -9,10 +9,10 @@ vkd3d-proton. CUDA goes through a bridge inside the Wine prefix.
 NuxFX contains no Adobe software and no Wine runner. Bring your own licensed copy of
 After Effects 2024.
 
-> **Works:** After Effects 2024 (24.6.2) on Ubuntu 24.04 under WSL2, with the features
-> in the [status table](#status).
-> **Does not work:** the Cinema 4D renderer. Advanced 3D works for the scene tested (see Gaps).
-> Other distributions are not verified. See [Supported distributions](#supported-distributions).
+> **Works:** After Effects 2024 (24.6.2) under WSL2, with the CUDA bridge and the Advanced 3D
+> renderer, with Adobe's files unmodified. See the [status table](#status) and the
+> [distributions that were tested](#supported-distributions).
+> **Does not work:** the Cinema 4D renderer, and RAM preview is unreliable (see Gaps).
 
 ## Contents
 
@@ -30,19 +30,20 @@ After Effects 2024.
 
 ## Status
 
-Features on Ubuntu 24.04 under WSL2:
+Features under WSL2. The installer and the tests were run on fresh images of every
+distribution in [the table below](#supported-distributions):
 
 | Feature | Status | Notes |
 |---|---|---|
 | Start and run After Effects 2024 (24.6.2) | Works | |
-| Composition panel | Works | `scripts/ae_prefs.sh` turns off AE's DirectX display |
+| Composition panel | Works | AE's OpenGL display draws it. `scripts/ae_prefs.sh` turns off AE's DirectX display (it cannot work with the CUDA bridge). Wine needs `libXcomposite`, or the panel stays black (see [Libraries that Wine opens at run time](#libraries-that-wine-opens-at-run-time)) |
 | RAM preview (space) | Does not work reliably | The playhead stops after 1 to 3 seconds on the first preview, and later previews may not move. See [Gaps](#gaps) |
 | Classic 3D renderer | Works | Panel and render queue |
 | Direct3D 11 swapchain windows | Works | Patch 17 |
-| Advanced 3D renderer (`ADBE Calder`) | Works (simple scene) | Needs patch 19, Adobe's `d3dcompiler_47.dll` and an empty disk cache once. See [Gaps](#gaps) |
+| Advanced 3D renderer (`ADBE Calder`) | Works (simple scene) | Needs the CUDA bridge, patches 19 and 20 and Adobe's `d3dcompiler_47.dll` (it is in the After Effects folder). `tests/run_ae_advanced3d_test.sh` renders a tilted 3D solid. See [Gaps](#gaps) |
 | Cinema 4D renderer (`ADBE Ernst`) | Does not work | AE's plugin scan does not load the plugin under Wine |
 | Effects on the GPU | Partly | Only Invert and solid layers were checked |
-| CUDA | Partly | Device queries work (patch 18). Direct3D interop is not implemented |
+| CUDA | Works for AE | The project uses CUDA acceleration (`tests/run_ae_advanced3d_test.sh` checks it) and Advanced 3D needs it. Device queries work (patch 18). Direct3D interop is not implemented |
 | GPUSniffer DirectX test | Passes | Result 529 |
 | Vulkan conformance | Not tested | dzn is not a conformant Vulkan implementation |
 
@@ -53,17 +54,21 @@ The match name `ADBE Advanced 3d` is the classic renderer (Classic 3D). Advanced
 
 | Distribution | Environment | Status |
 |---|---|---|
-| Ubuntu 24.04 LTS | WSL2 | Works |
-| Ubuntu 24.04 LTS | Native Linux | Not verified |
-| Debian 12 and 13, Linux Mint, Pop!_OS | WSL2 or native | Not verified |
-| Fedora (current release) | WSL2 or native | Not verified |
-| Arch Linux, Manjaro, EndeavourOS | Native | Not verified |
-| openSUSE Tumbleweed and Leap | WSL2 or native | Not verified |
+| Ubuntu 24.04 LTS | WSL2 | Works: `install.sh` on a fresh image, `doctor.sh` clean, all tests pass |
+| Debian 13 | WSL2 | Works (same checks) |
+| Fedora 44 | WSL2 | Works (same checks) |
+| Arch Linux | WSL2 | Works (same checks) |
+| openSUSE Tumbleweed | WSL2 | Works (same checks; Xvfb for the tests needs a workaround, see [known issues](docs/known-issues.md)) |
+| Other Ubuntu and Debian releases, Linux Mint, Pop!_OS, Rocky, Alma, openSUSE Leap, Manjaro, EndeavourOS | WSL2 | Not verified (same package families as the rows above) |
+| Any distribution | Native Linux | Not verified |
 
-"Not verified" means the steps below are given for that distribution, but nothing in
-this repository has been run on it. On native Linux the host's own Vulkan driver is
-used. The dzn build (step 3) and the WSL2-only parts do not apply there. Set
-`AEGNUX_VULKAN=system`.
+"Works" means: a fresh WSL2 image, `./install.sh --yes`, then `scripts/doctor.sh` with no
+failure, then `tests/run_gl_window_test.sh`, `tests/run_ae_viewer_test.sh`,
+`tests/run_ae_advanced3d_test.sh` (renderer `ADBE Calder`, CUDA acceleration) and
+`tests/run_push_descriptor_test.sh` all pass. "Not verified" means the steps below are given
+for that distribution, but nothing in this repository has been run on it. On native Linux
+the host's own Vulkan driver is used. The dzn build (step 3) and the WSL2-only parts do not
+apply there. Set `AEGNUX_VULKAN=system`.
 
 ## How it works
 
@@ -84,8 +89,12 @@ flowchart LR
 
 - **WSL2.** dzn implements Vulkan on top of Direct3D 12. The Direct3D 12 driver is reached
   through `/dev/dxg`. The patches in `patches/` apply to pristine Mesa 25.2.8.
-  OpenGL goes through Mesa's D3D12 Gallium driver (`GALLIUM_DRIVER=d3d12`), which the
-  scripts set under WSL.
+  OpenGL (Wine draws After Effects' Composition panel with it, through EGL) goes through
+  Mesa's D3D12 Gallium driver (`GALLIUM_DRIVER=d3d12`). `scripts/build_gl.sh` builds that
+  driver and EGL from the same Mesa 25.2.8 source into their own prefix, and the scripts
+  put it first in `LD_LIBRARY_PATH` for Wine. The distribution's own Mesa is not used,
+  because it differs from distribution to distribution (with Mesa 26 on Arch Linux the
+  panel stayed empty).
 - **Native Linux.** The host's own Vulkan driver (RADV, ANV, NVIDIA) is used, and dzn is
   not built.
 
@@ -106,16 +115,17 @@ runs without further input:
    the Wine prefix and offers to import them from your Windows install or from any folder.
 3. **Plan.** It shows every choice and asks once before it starts.
 
-Then it installs the system packages (with `sudo`), the Wine runner, dzn (WSL2), the
-Wine prefix, DXVK, vkd3d-proton, the CUDA bridge, your After Effects files, your plugins and
-a menu entry, and runs `scripts/doctor.sh`. Downloads are checked by SHA-256. Finished parts
+Then it installs the system packages (with `sudo`), the Wine runner, dzn and the OpenGL
+driver (WSL2, both built from Mesa 25.2.8), the Wine prefix, DXVK, vkd3d-proton, the CUDA
+bridge, your After Effects files, your plugins and a menu entry, and runs
+`scripts/doctor.sh`. Downloads are checked by SHA-256. Finished parts
 are skipped on a second run. Options: `./install.sh --help` (`--yes`, `--ae-dir`, `--plugins`,
 `--extensions`, `--home`, `--dry-run`, `--force`).
 
-The installer was run end to end on Ubuntu 26.04 under WSL2 with `--no-packages --no-dzn
---no-cuda` (runner, prefix, winetricks, DXVK, vkd3d-proton, After Effects files, plugins).
-The package installation, the dzn build, the CUDA bridge and `install.cmd` were not run
-through it.
+The installer was run end to end (system packages, runner, dzn and OpenGL builds, prefix,
+winetricks, DXVK, vkd3d-proton, CUDA bridge, After Effects files) on fresh WSL2 images of
+the distributions in [the table above](#supported-distributions). `install.cmd` and the
+plugin and extension import were not run through the fresh-image checks.
 
 You bring the After Effects files yourself. The installer does not download Adobe software
 and does not touch Adobe's licensing. The manual steps below are what the installer does.
@@ -164,7 +174,7 @@ for Mesa 25.2.8 (it needs meson 1.4 or newer), so meson comes from pipx here. Ch
 
 ```sh
 sudo dnf install gcc gcc-c++ git pkgconf-pkg-config ninja-build python3-mako pipx \
-    curl xz zstd cabextract winetricks mingw64-gcc libX11-devel xdotool xorg-x11-utils \
+    curl xz zstd cabextract winetricks mingw64-gcc libX11-devel xdotool xwininfo \
     xorg-x11-server-Xvfb
 pipx ensurepath
 pipx install meson
@@ -191,6 +201,32 @@ sudo zypper install git pkgconf ninja meson python3-Mako curl xz zstd cabextract
 ```
 
 Check `meson --version` (1.4 or newer).
+
+#### Libraries that Wine opens at run time
+
+Wine loads these with `dlopen`, so a package manager does not pull them in for a runner
+that is not a distribution package, and Wine does not complain when one is missing: it
+switches the feature off. A missing `libXcomposite` leaves After Effects' Composition
+panel black although the frames render. `install.sh` installs them, `scripts/doctor.sh`
+lists the missing ones with the install command for your distribution, and
+`tests/run_gl_window_test.sh` checks the effect.
+
+```sh
+# Ubuntu, Debian
+sudo apt install libx11-6 libxext6 libxi6 libxrandr2 libxrender1 libxfixes3 libxcursor1 \
+    libxcomposite1 libxinerama1 libxxf86vm1 libxkbcommon0 libxkbregistry0 libfreetype6 \
+    libfontconfig1 libgnutls30 libegl1 libgl1
+# Fedora
+sudo dnf install libX11 libXext libXi libXrandr libXrender libXfixes libXcursor libXcomposite \
+    libXinerama libXxf86vm libxkbcommon freetype fontconfig gnutls libglvnd-egl libglvnd-glx
+# Arch Linux
+sudo pacman -S --needed libx11 libxext libxi libxrandr libxrender libxfixes libxcursor \
+    libxcomposite libxinerama libxxf86vm libxkbcommon freetype2 fontconfig gnutls libglvnd
+# openSUSE
+sudo zypper install libX11-6 libXext6 libXi6 libXrandr2 libXrender1 libXfixes3 libXcursor1 \
+    libXcomposite1 libXinerama1 libXxf86vm1 libxkbcommon0 libxkbregistry0 libfreetype6 \
+    libfontconfig1 libgnutls30 libEGL1 libGL1
+```
 
 **Libraries for the dzn build (WSL2 only)**
 
@@ -219,12 +255,18 @@ curl -LO https://archive.mesa3d.org/mesa-25.2.8.tar.xz
 git clone https://github.com/chunsal/NuxFX.git
 cd NuxFX
 MESA_TARBALL="$HOME/mesa-25.2.8.tar.xz" scripts/build_dzn.sh
+scripts/build_gl.sh
 ```
 
 `build_dzn.sh` checks the tarball's SHA-256, applies the patches, builds
 `libvulkan_dzn.so` and installs it under `$DZN_PREFIX` (default `$AEGNUX_HOME/dzn`).
 It writes the install locations to `~/.config/aegnux/aegnux.conf`. Meson downloads
 DirectX-Headers from GitHub during configure. Set `https_proxy` if you need a proxy.
+
+`build_gl.sh` builds Mesa's EGL library and its Direct3D 12 OpenGL driver from the same
+source tree and installs them under `$AEGNUX_GL_PREFIX` (default `$AEGNUX_HOME/mesa-gl`).
+`aegnux_env` puts that folder first in `LD_LIBRARY_PATH`, so Wine's OpenGL does not depend on
+the distribution's Mesa. `AEGNUX_SYSTEM_GL=1` uses the distribution's OpenGL instead.
 
 ### 4. Wine runner
 
@@ -365,9 +407,12 @@ If it is not there either, the default in `scripts/common.sh` is used.
 | `AE_DIR` | `$AEGNUX_HOME/AE` | Folder that contains `AfterFX.exe` |
 | `DZN_PREFIX` | `$AEGNUX_HOME/dzn` | dzn install, written by `build_dzn.sh` |
 | `AEGNUX_VULKAN` | `auto` | `dzn`, `system` or `auto` |
+| `AEGNUX_GL_PREFIX` | `$AEGNUX_HOME/mesa-gl` | Install of `scripts/build_gl.sh` (Mesa's EGL and d3d12 OpenGL driver). When it exists, Wine uses it under WSL2 |
+| `AEGNUX_SYSTEM_GL` | `0` | `1` uses the distribution's OpenGL even when `AEGNUX_GL_PREFIX` exists |
 | `AEGNUX_DISABLE_CUDA` | `0` | `1` turns CUDA off for AE (nvcuda and nvcuvid are disabled) and sets `DZN_DEBUG=nocudauuid`, so dzn does not query CUDA. AE then renders in software and reports Advanced 3D as unsupported |
 | `AEGNUX_DIRECTX_DISPLAY` | `0` | `1` keeps AE's DirectX display (the panel stays empty while CUDA is used) |
-| `AEGNUX_HIDE_HOME_SCREEN` | `1` | `0` keeps AE's Home screen setting |
+| `AEGNUX_HIDE_HOME_SCREEN` | `1` | `0` keeps AE's Home screen setting. On a first start, when AE has no preferences file yet, `ae_prefs.sh` writes one with the Home screen off (it renders as an empty panel over the whole workspace) |
+| `AEGNUX_COACHMARKS` | `1` | `0` switches off AE's first-start tips (the tests use it) |
 | `AEGNUX_EXTRA_OVERRIDES` | empty | Extra `WINEDLLOVERRIDES` entries |
 | `AEGNUX_WINEDEBUG` | errors only | `WINEDEBUG` for AE |
 | `AEGNUX_APIVER_LAYER` | `0` | `1` enables the optional apiVersion layer. Not needed with patch 04 |
@@ -375,11 +420,19 @@ If it is not there either, the default in `scripts/common.sh` is used.
 ## Tests
 
 ```sh
+tests/run_gl_window_test.sh        # an OpenGL child window reaches the screen (Wine's libraries; no AE needed)
 tests/run_dxgi_present_test.sh     # D3D11 swapchain shows its backbuffer (patch 17)
 tests/run_ae_viewer_test.sh        # Composition panel shows a rendered comp
+tests/run_ae_advanced3d_test.sh    # Advanced 3D renders a tilted 3D solid (needs the CUDA bridge)
+tests/run_push_descriptor_test.sh  # dzn push descriptors reach a compute shader (patch 20)
 scripts/gpu_sniffer_test.sh        # dzn entrypoint audit, then AE's GPUSniffer DirectX test
 ```
 
+- `run_gl_window_test.sh` needs `x86_64-w64-mingw32-gcc`, Xvfb, xwininfo, python3 and gcc
+  with X11 headers. A small Windows program opens a window with an OpenGL child window
+  (the way AE draws the Composition panel) and the test looks for its cyan fill in a
+  screenshot of a private Xvfb display. It fails, and names the missing library, when Wine
+  cannot show the child window. It runs in about 15 seconds.
 - `run_dxgi_present_test.sh` needs `x86_64-w64-mingw32-gcc` (`gcc-mingw-w64-x86-64`), gcc
   with X11 headers (`libx11-dev`), xdotool and python3.
 - `run_ae_viewer_test.sh` needs xdotool, xwininfo (`x11-utils`), python3 and gcc with X11
@@ -387,13 +440,21 @@ scripts/gpu_sniffer_test.sh        # dzn entrypoint audit, then AE's GPUSniffer 
   solid and an Invert effect. The test passes if the Composition panel shows cyan. With
   Xvfb installed it runs on a private display, so nothing appears on your desktop. It
   stops any AE of the prefix that is running.
+- `run_ae_advanced3d_test.sh` has the same requirements. Its startup script selects the
+  Advanced 3D renderer for a comp with a tilted red 3D solid and saves frame 0 as a PNG; the
+  test passes if AE keeps the renderer and the PNG shows red and no magenta. Scripts may not
+  write files unless the AE preference allows it, so the result is carried in the name of the
+  comp of a project the script saves.
+- `run_push_descriptor_test.sh` needs cc, the Vulkan headers and loader (`libvulkan-dev`),
+  `glslangValidator` and the dzn build.
 - `gpu_sniffer_test.sh` needs the dzn build and the After Effects files.
 
 ## Repository layout
 
 ```
-patches/   19 patches (git format-patch) against pristine Mesa 25.2.8
+patches/   20 patches (git format-patch) against pristine Mesa 25.2.8
 scripts/   build_dzn.sh          build and install dzn (WSL2)
+           build_gl.sh           build and install Mesa's EGL and d3d12 OpenGL driver (WSL2)
            launch_ae.sh          start AE (applies ae_prefs.sh and clear_crash_state.sh)
            stop_ae.sh            stop AE and its wineserver
            doctor.sh             read-only check of host, prefix, AE and tools
@@ -404,7 +465,9 @@ scripts/   build_dzn.sh          build and install dzn (WSL2)
            dzn_audit.c, gen_cmds.py   entrypoint audit of dzn
            apiver_layer/        optional Vulkan layer (apiVersion), off by default
            tools/xcap.c         X11 screen capture for the tests
-tests/     run_dxgi_present_test.sh, run_ae_viewer_test.sh, dxgi_present_test.c
+tests/     run_gl_window_test.sh, run_dxgi_present_test.sh, run_ae_viewer_test.sh,
+           run_ae_advanced3d_test.sh, run_push_descriptor_test.sh, gl_window_test.c,
+           dxgi_present_test.c, push_descriptor_test.c, push_descriptor.comp
 docs/      technical-note.md    findings and evidence, section by section
            known-issues.md      fixed and open issues, stubs, limitations
 LICENSE    GPL-3.0-or-later
@@ -424,20 +487,19 @@ What is missing, broken or not decided yet.
 
 **Not working**
 
-- Advanced 3D renderer (`ADBE Calder`): renders a 3D solid correctly (patch 19, Adobe's d3dcompiler_47, empty the disk cache once). Lights, shadows, models and environment textures were not tested. `docs/known-issues.md` has the causes.
+- Advanced 3D renderer (`ADBE Calder`): renders a 3D solid correctly (patch 19, Adobe's d3dcompiler_47, empty the disk cache once). A solid that faces the camera keeps its colour; a tilted one is darker than in the Classic 3D renderer (the Advanced 3D default light; no reference render from Windows was compared). Lights, shadows, models and environment textures were not tested. `docs/known-issues.md` has the causes.
 - Cinema 4D renderer (`ADBE Ernst`): not tested (the plugin-scan message that was blamed earlier for Advanced 3D is harmless).
 - RAM preview: the playhead stops after 1 to 3 seconds of the first preview, and later previews may not move. The cause is not known. `docs/known-issues.md` has the evidence and the tests that did not change it.
 - `tests/run_ae_viewer_test.sh` checks one frame (a red solid with Invert). It does not play the comp.
 
 **Not verified**
 
-- Every distribution except Ubuntu 24.04 under WSL2 (see the table above).
-- Native Linux hosts and NVIDIA's own Vulkan driver.
-- AMD and Intel GPUs.
+- Distributions that are not in the table above, and native Linux hosts.
+- NVIDIA's own Vulkan driver, AMD and Intel GPUs. Everything was run on one NVIDIA GPU.
 - After Effects versions other than 24.6.2.
 - Effects other than Invert and solid layers, and large projects.
-- The steps in [Installation](#installation) have not been run from scratch end to end.
-  They were written from the working setup.
+- The manual steps in [Installation](#installation) are what `install.sh` does; the
+  installer is what was run from scratch.
 
 **dzn**
 
@@ -449,8 +511,6 @@ What is missing, broken or not decided yet.
 - There are no sparse resources, so vkd3d-proton stops at Direct3D 12 feature level 11_1.
 - The robustness features are advertised without a dedicated test.
 - No Vulkan CTS run. dzn prints "not a conformant Vulkan implementation".
-- The ICD manifest written by `build_dzn.sh` says `api_version` 1.1.318, while dzn reports
-  1.3 (patch 04). The effect of the difference was not measured.
 
 **CUDA bridge**
 
@@ -461,8 +521,8 @@ What is missing, broken or not decided yet.
 
 - The Wine runner, DXVK, vkd3d-proton, nvidia-libs and the AE files are installed by hand
   (steps 4 to 8). `doctor.sh` checks them, but the repository does not download or pin them.
-- No installer and no CI. The tests need a desktop-like X session. Xvfb is used when it is
-  installed.
+- No CI. The tests need Xvfb (they run on a private display) and a Windows After Effects
+  folder for the AE tests.
 - The code and the configuration keep the `aegnux` name (`AEGNUX_*` variables,
   `~/.local/share/aegnux`, `aegnux.conf`).
 
