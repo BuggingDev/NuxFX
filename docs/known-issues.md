@@ -8,11 +8,13 @@ Status date: 2026-10-24. Patch numbers refer to `patches/`.
   nothing. Stream output is dropped, not emulated, so any effect that depends on
   transform feedback renders incorrectly. The extension is advertised only so that
   vkd3d-proton and DXVK accept the device.
-- **inlineUniformBlock and nullDescriptor are advertised (patch 15) but not
-  implemented.** dzn has no handling for VkWriteDescriptorSetInlineUniformBlock or
-  for VK_NULL_HANDLE descriptors. DXVK 3.0.1 refuses to create an adapter without
-  these bits, so they stay on. An application that really uses either feature gets
-  wrong results.
+- **inlineUniformBlock is advertised (patch 15) but not implemented; nullDescriptor works
+  for buffers.** `tests/run_descriptor_features_test.sh` shows it: a storage buffer and a
+  uniform buffer descriptor written with VK_NULL_HANDLE read as zero, but a descriptor pool
+  with an inline uniform block binding refuses the allocation (`VK_ERROR_OUT_OF_POOL_MEMORY`).
+  Null image, sampler and texel buffer descriptors were not tested. DXVK 3.0.1 refuses to
+  create an adapter without these bits, so they stay on. An application that really uses
+  inline uniform blocks gets an error.
 - **Robustness bits (patch 15)** robustImageAccess, robustBufferAccess2,
   robustImageAccess2 and EXT_robustness2 are advertised without a dedicated test.
   D3D12's default out-of-range behaviour is assumed to match.
@@ -427,15 +429,18 @@ be the cause: the renderer loads and runs, and the Ignore flag does not matter.
   playhead of the timeline stays at the start, and `comp.time` read from a script stays at the
   start too. The green cache bar fills. `tests/run_ae_ram_preview_test.sh` prints "timeline
   playhead: moved 0 px" in every run, at every playback speed.
-- The wait: a worker thread that `AfterFXLib.dll` creates while AE starts its audio and video
-  renderers (`AudioRendererImpl Init starting up`, about 11 seconds after start in a
-  timestamped run) waits for a critical section inside `AfterFXLib.dll` (image offset
-  `0x209F0C8`). The Wine log shows it as `wait timed out ... blocked by <main thread>`. It
-  appears in every run.
-- The owner: the main thread. Right after it creates the worker (call site `AfterFXLib.dll`
-  offset `0x3DCC1C`), it enters a message loop called from `AfterFXLib.dll` (offset
-  `0x3C6F2C`). Inside that loop it processes `WM_TIMER` and `WM_PAINT` and does not release
-  the section. AE's normal loop (`dvaui.dll`, offset `0x5FE543`) runs again only at shutdown.
+- The wait that the Wine log shows (`err:sync:RtlpWaitForCriticalSection ... wait timed out ...
+  blocked by <main thread>`, in every run) is not the cause. Reading the code of `AfterFXLib.dll`
+  (objdump of the 15 places that use the section at image offset `0x209F0C8`, the import table
+  and the strings, no Adobe file changed) shows that it belongs to AE's WinTab32 tablet code.
+  The init function (offset `0x3DCBC0`, called from `0x5E393D`) creates the polling thread
+  suspended with `CreateThread`, takes the section on the main thread and resumes the thread,
+  which blocks on it. The section is released by the first call of the pen reader (`0x3DCD00`,
+  called from the pen event handler `0x3CDE60`), and the same cluster of functions has the
+  `WinTab32.dll` string. Without a tablet and a pen event the thread stays blocked; that is the
+  design, and it is the same on Windows, where nothing logs it. Earlier notes here took the
+  wait and a message loop of the main thread (offset `0x3C6F2C`) for the cause of the frozen
+  playhead; that loop was not examined further.
 - Relay logs: `wine.inf` writes a `RelayExclude` list into the prefix. It includes
   `RtlEnterCriticalSection`, `RtlTryEnterCriticalSection` and `RtlLeaveCriticalSection`, so
   relay logs show no critical-section calls. `doctor.sh` warns about it.
