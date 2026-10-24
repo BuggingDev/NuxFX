@@ -31,3 +31,25 @@ By contributing you agree that your contribution is licensed under GPL-3.0-or-la
 
 Open an issue with the output of `scripts/doctor.sh`, the distribution and the GPU route (host
 driver or Direct3D 12 / dzn), and the name of the AE log folder. Do not attach Adobe binaries.
+
+## Repository layout
+
+```
+install.sh        one-command installer
+patches/          21 patches (git format-patch) against pristine Mesa 25.2.8
+scripts/          build_dzn.sh          build and install dzn (Direct3D 12 route)
+                  build_gl.sh           build and install Mesa's EGL and d3d12 OpenGL driver
+                  launch_ae.sh          start After Effects (applies ae_prefs.sh and clear_crash_state.sh)
+                  stop_ae.sh            stop After Effects and its wineserver
+                  doctor.sh             read-only check of host, prefix, After Effects and tools
+                  ae_prefs.sh           the After Effects preferences this setup needs
+                  clear_crash_state.sh  clears After Effects' previous-crash state
+                  common.sh             shared settings, platform and display detection, package hints
+                  gpu_sniffer_test.sh   entrypoint audit, then GPUSniffer
+                  dzn_audit.c, gen_cmds.py   entrypoint audit of dzn
+                  apiver_layer/         optional Vulkan layer (apiVersion), off by default
+                  tools/xcap.c          X11 screen capture for the tests
+tests/            run_*.sh and the C and GLSL sources they build
+docs/             how-it-works.md, configuration.md, troubleshooting.md, wayland.md, tests.md,
+                  known-issues.md, technical-note.md, manual-installation.md, screenshots/
+```
