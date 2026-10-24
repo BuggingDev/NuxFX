@@ -15,7 +15,7 @@
 #     --home DIR           install folder (default ~/.local/share/aegnux)
 #     --no-packages        do not install system packages
 #     --no-cuda            do not install the CUDA bridge
-#     --no-dzn             do not build dzn (default on native Linux)
+#     --no-dzn            do not build dzn (default on native Linux)
 #     --force              redo parts that look finished
 #     --dry-run            show the plan and the commands, change nothing
 #     -h, --help           this text
@@ -55,6 +55,10 @@ VKD3D_URL="https://github.com/HansKristian-Work/vkd3d-proton/releases/download/v
 VKD3D_SHA=3cf2315522af5e43605ef6d3c41dad91387040bf97199934f3f7ab76caaa2f0c
 NVLIBS_URL="https://github.com/SveSop/nvidia-libs/releases/download/v1.0.2/nvidia-libs-v1.0.2.tar.xz"
 NVLIBS_SHA=01e8bb6368d088e22d8e8f1d02497214e8db436476021725ef0c0707b7cb1738
+# winetricks is a single shell script. The distributions' packages differ (Debian keeps it in
+# contrib, which WSL's Debian image does not enable), so the pinned upstream script is used.
+WT_URL="https://raw.githubusercontent.com/Winetricks/winetricks/20250102/src/winetricks"
+WT_SHA=53194dead910f8a5eb1deacaa4773d4e48f5873633d18ab1ecd6fdb0cb92243b
 MESA_URL="https://archive.mesa3d.org/mesa-25.2.8.tar.xz"
 MESA_SHA=097842f3e49d996868b38688db87b006f7d4541e93ce86d2f341d8b3e7be7c93
 
@@ -118,7 +122,15 @@ fi
 say "  Host:    $( . /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-Linux}" ) ($ENVNAME)"
 say "  Install: $AEGNUX_HOME"
 [ "$ENVNAME" = "native Linux" ] && note "native Linux is not verified; the host's Vulkan driver is used and dzn is skipped"
-[ "$(id -u)" = 0 ] && note "running as root: Wine would create a root-owned prefix; run this as a normal user" && die "do not run the installer as root"
+if [ "$(id -u)" = 0 ]; then
+    note "running as root: Wine would create a root-owned prefix; run this as a normal user"
+    case " $(. /etc/os-release 2> /dev/null; echo "${ID:-} ${ID_LIKE:-}") " in
+        *" debian "*|*" ubuntu "*) say "  create one with:  adduser nux && usermod -aG sudo nux   (needs the sudo package)" ;;
+        *) say "  create one with:  useradd -m -G wheel nux && passwd nux   (needs the sudo package and a wheel rule in sudoers)" ;;
+    esac
+    say "  then start a shell as that user (su - nux, or wsl -u nux) and run the installer again."
+    die "do not run the installer as root"
+fi
 
 # ---------- questions ----------
 
@@ -173,7 +185,7 @@ say "    extensions (CEP) $CEP_DEST"
 say "    your extensions  $CEP_USER_DEST"
 if [ ${#PLUGIN_DIRS[@]} -eq 0 ]; then
     for d in "/mnt/c/Program Files/Adobe/Common/Plug-ins/7.0/MediaCore"; do
-        if [ -d "$d" ] && ask_yn "  Import the plugins of your Windows install ($d)?" y; then PLUGIN_DIRS+=("$d"); fi
+        if [ -d "$d" ] && ask_yn "  Import the third-party plugins of your Windows install ($d)? Some need Windows libraries that are not copied" n; then PLUGIN_DIRS+=("$d"); fi
     done
 fi
 if [ ${#EXT_DIRS[@]} -eq 0 ]; then
@@ -213,6 +225,7 @@ say "  After Effects     $AE_SRC"
 say "  System packages   $([ "$PACKAGES" = 1 ] && echo yes || echo skipped)"
 say "  Wine runner       $WINE_VER (Wine TkG staging, checked by SHA-256)"
 say "  dzn (Mesa)        $([ "$DZN" = 1 ] && echo "build from source, takes a while" || echo skipped)"
+say "  OpenGL (Mesa)     $([ "$DZN" = 1 ] && echo "build from source (EGL and the d3d12 driver, same Mesa version)" || echo skipped)"
 say "  DXVK / vkd3d      3.0.1 / 3.0.1"
 say "  CUDA bridge       $([ "$CUDA" = 1 ] && echo "nvidia-libs 1.0.2" || echo skipped)"
 say "  Plugins           ${#PLUGIN_DIRS[@]} folder(s)"
@@ -225,7 +238,7 @@ ask_yn "Start the installation?" y || { say "cancelled"; exit 1; }
 mkdir -p "$AEGNUX_HOME/downloads" "$AEGNUX_LOG_DIR"
 LOG="$AEGNUX_LOG_DIR/install_$(date +%Y%m%d_%H%M%S).log"
 say "  log: $LOG"
-STEP=0; TOTAL=11
+STEP=0; TOTAL=12
 step() { STEP=$((STEP + 1)); head1 "[$STEP/$TOTAL] $*"; }
 # run DESCRIPTION CMD...: output goes to the log; on failure the tail is shown
 run() {
@@ -263,36 +276,74 @@ DL="$AEGNUX_HOME/downloads"
 # client). The vkd3d-proton installer looks for system.reg, so wait for that.
 settle() { run "waiting for the wineserver" "$WINE_BIN_DIR/wineserver" -w; }
 
+# The package managers ask "Proceed?" and the installer closes stdin, so the commands get
+# their non-interactive flags here (the question was asked above).
+noninteractive() {
+    sed -e 's/^sudo apt install/sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y/' \
+        -e 's/^sudo dnf install/sudo dnf install -y/' \
+        -e 's/^sudo pacman -S --needed/sudo pacman -S --needed --noconfirm/' \
+        -e 's/^sudo zypper install/sudo zypper --non-interactive install/'
+}
+
 step "System packages"
 if [ "$PACKAGES" = 1 ]; then
-    BASE=(git curl xz zstd cabextract winetricks pkg-config)
-    [ "$DZN" = 1 ] && BASE+=(gcc ninja python3-mako pipx)
+    # which: vkd3d-proton's setup script finds Wine with it (openSUSE's image has none)
+    BASE=(git curl tar xz zstd cabextract pkg-config awk procps which)
+    if [ "$DZN" = 1 ]; then
+        BASE+=(gcc gcc-c++ ninja python3-mako)
+        # Debian and Ubuntu releases ship a meson that can be too old (24.04: 1.3); the other
+        # distributions' meson is current. The old case is handled after the packages.
+        if have apt-get; then BASE+=(pipx python3-venv); else BASE+=(meson); fi
+    fi
+    # The Vulkan loader is needed by Wine on every host; under WSL2 the OpenGL driver
+    # (Mesa's d3d12 Gallium driver) comes from the distribution's Mesa package.
+    BASE+=(vulkan-loader)
+    is_wsl && BASE+=(mesa-dri)
+    # Libraries the Wine runner opens at run time. It does not complain when one is missing:
+    # without libXcomposite After Effects' Composition panel stays black.
+    WINE_LIBS=$(aegnux_wine_libs_missing | tr '\n' ' ')
+    # shellcheck disable=SC2206
+    BASE+=($WINE_LIBS)
     CMD=$(aegnux_pkg_hint "${BASE[@]}")
     MISSING_ANY=0
-    for t in git curl xz zstd cabextract winetricks; do have "$t" || MISSING_ANY=1; done
-    if [ "$DZN" = 1 ] && [ -n "$(aegnux_build_missing | grep -v '^meson')" ]; then MISSING_ANY=1; fi
+    for t in git curl tar xz zstd cabextract awk pgrep which; do have "$t" || MISSING_ANY=1; done
+    [ -n "$WINE_LIBS" ] && MISSING_ANY=1
+    ldconfig -p 2> /dev/null | grep -q 'libvulkan\.so\.1' || MISSING_ANY=1
+    if is_wsl; then
+        ls /usr/lib/x86_64-linux-gnu/dri/d3d12_dri.so /usr/lib64/dri/d3d12_dri.so /usr/lib/dri/d3d12_dri.so > /dev/null 2>&1 || MISSING_ANY=1
+    fi
+    if [ "$DZN" = 1 ] && [ -n "$(aegnux_build_missing)" ]; then MISSING_ANY=1; fi
     if [ "$MISSING_ANY" = 1 ]; then
         say "  needs: $CMD"
         [ "$DZN" = 1 ] && say "         $(aegnux_mesa_dev_hint)"
         if ask_yn "  Run these with sudo?" y; then
-            run "installing base packages" bash -c "$CMD"
-            [ "$DZN" = 1 ] && run "installing Mesa build libraries" bash -c "$(aegnux_mesa_dev_hint)"
+            run "installing base packages" env DEBIAN_FRONTEND=noninteractive bash -c "$(printf '%s\n' "$CMD" | noninteractive)"
+            [ "$DZN" = 1 ] && run "installing Mesa build libraries" env DEBIAN_FRONTEND=noninteractive bash -c "$(aegnux_mesa_dev_hint | noninteractive)"
         else
             note "skipped; the steps below may fail"
         fi
     else
         good "everything needed is installed"
     fi
+    STILL=$(aegnux_wine_libs_missing | tr '\n' ' ')
+    [ -z "$STILL" ] || note "still missing: $STILL (scripts/doctor.sh explains what each one does)"
 else
     note "skipped (--no-packages)"
 fi
 if [ "$DZN" = 1 ] && [ -n "$(aegnux_build_missing | grep '^meson')" ]; then
-    if have pipx; then
-        run "installing meson with pipx" pipx install meson
-        export PATH="$HOME/.local/bin:$PATH"
+    # pipx first; some distributions ship a pipx with a missing dependency, so a private
+    # virtual environment is the fallback.
+    export PATH="$HOME/.local/bin:$PATH"
+    if have pipx && pipx install meson < /dev/null >> "$LOG" 2>&1; then
+        good "meson $(meson --version) installed with pipx"
     else
-        note "meson 1.4 or newer is missing and pipx is not installed; build_dzn.sh will stop and say so"
+        MV="$AEGNUX_HOME/meson-venv"
+        run "installing meson in $MV" bash -c "python3 -m venv '$MV' && '$MV/bin/pip' install meson"
+        export PATH="$MV/bin:$PATH"
     fi
+    case "$(meson --version 2> /dev/null)" in
+        "") die "meson could not be installed; install meson 1.4 or newer and run again" ;;
+    esac
 fi
 
 step "Wine runner"
@@ -308,11 +359,20 @@ fi
 # resolve to different folders (a distribution's own wine64 is enough to trigger it).
 [ -e "$WINE_BIN_DIR/wine64" ] || ln -s wine "$WINE_BIN_DIR/wine64"
 
+# True when the dzn build already contains every patch of this checkout (or when that cannot
+# be told because the source tree is elsewhere).
+dzn_uptodate() {
+    local applied="${MESA_SRC:-$AEGNUX_HOME/src/mesa-25.2.8}/.aegnux-patches-applied" p
+    [ -f "$applied" ] || return 0
+    for p in "$HERE"/patches/*.patch; do grep -qF "$(basename "$p")" "$applied" || return 1; done
+}
+
 step "Vulkan driver (dzn)"
 if [ "$DZN" = 1 ]; then
-    if [ -f "$(aegnux_dzn_icd)" ] && [ "$FORCE" = 0 ]; then
+    if [ -f "$(aegnux_dzn_icd)" ] && [ "$FORCE" = 0 ] && dzn_uptodate; then
         good "found: $(aegnux_dzn_icd)"
     else
+        [ -f "$(aegnux_dzn_icd)" ] && note "the dzn build lacks newer patches; rebuilding it"
         fetch "$MESA_URL" "$DL/mesa-25.2.8.tar.xz" "$MESA_SHA"
         export MESA_SRC="$AEGNUX_HOME/src/mesa-25.2.8" MESA_BUILD="$AEGNUX_HOME/src/mesa-25.2.8/build" MESA_TARBALL="$DL/mesa-25.2.8.tar.xz"
         say "  building Mesa (several minutes; progress is in the log)"
@@ -322,9 +382,27 @@ else
     good "not needed here"
 fi
 
+step "OpenGL driver (Mesa EGL and d3d12)"
+if [ "$DZN" = 1 ]; then
+    # Wine's OpenGL (After Effects' Composition panel) runs on Mesa 25.2.8 from its own prefix,
+    # so it does not depend on the Mesa of the distribution (26.x left the panel empty).
+    if [ -f "$AEGNUX_GL_PREFIX/lib/libEGL.so.1" ] && [ "$FORCE" = 0 ]; then
+        good "found: $AEGNUX_GL_PREFIX"
+    else
+        fetch "$MESA_URL" "$DL/mesa-25.2.8.tar.xz" "$MESA_SHA"
+        export MESA_SRC="$AEGNUX_HOME/src/mesa-25.2.8" MESA_BUILD="$AEGNUX_HOME/src/mesa-25.2.8/build" MESA_TARBALL="$DL/mesa-25.2.8.tar.xz"
+        say "  building Mesa's OpenGL driver (a few minutes; progress is in the log)"
+        run "building the OpenGL driver" "$HERE/scripts/build_gl.sh"
+    fi
+else
+    good "not needed here"
+fi
+
 # keep the locations for the other scripts
 mkdir -p "$(dirname "$AEGNUX_CONFIG")"
 touch "$AEGNUX_CONFIG"
+sed -i '/^AEGNUX_DISABLE_CUDA=/d' "$AEGNUX_CONFIG"
+[ "$CUDA" = 1 ] || echo "AEGNUX_DISABLE_CUDA=1" >> "$AEGNUX_CONFIG"
 for kv in "AEGNUX_HOME=$AEGNUX_HOME" "AE_DIR=$AE_DIR" "WINE_BIN_DIR=$WINE_BIN_DIR" "WINEPREFIX=$WINEPREFIX"; do
     sed -i "/^${kv%%=*}=/d" "$AEGNUX_CONFIG"
     printf '%s\n' "$kv" >> "$AEGNUX_CONFIG"
@@ -350,7 +428,10 @@ if grep -qx vcrun2022 "$WINEPREFIX/winetricks.log" 2> /dev/null \
    && grep -qx d3dcompiler_47 "$WINEPREFIX/winetricks.log" 2> /dev/null && [ "$FORCE" = 0 ]; then
     good "found"
 else
-    run "winetricks vcrun2022 d3dcompiler_47 (slow)" winetricks -q vcrun2022 d3dcompiler_47
+    fetch "$WT_URL" "$DL/winetricks-20250102" "$WT_SHA"
+    mkdir -p "$AEGNUX_HOME/bin"
+    install -m 755 "$DL/winetricks-20250102" "$AEGNUX_HOME/bin/winetricks"
+    run "winetricks vcrun2022 d3dcompiler_47 (slow)" "$AEGNUX_HOME/bin/winetricks" -q vcrun2022 d3dcompiler_47
     settle
 fi
 
@@ -395,12 +476,16 @@ if [ "$AE_SRC" = "$AE_DIR" ] || { [ -f "$AE_DIR/AfterFX.exe" ] && [ "$FORCE" = 0
 else
     SZ=$(du -sh "$AE_SRC" 2> /dev/null | cut -f1)
     mkdir -p "$AE_DIR"
+    # Modes are not copied: files from a Windows drive arrive read-only (r-xr-xr-x), and
+    # After Effects writes into its own folders.
     if have rsync; then
-        run "copying ${SZ:-?} to $AE_DIR" rsync -a "$AE_SRC/" "$AE_DIR/"
+        run "copying ${SZ:-?} to $AE_DIR" rsync -rlt "$AE_SRC/" "$AE_DIR/"
     else
-        run "copying ${SZ:-?} to $AE_DIR" cp -a "$AE_SRC/." "$AE_DIR/"
+        run "copying ${SZ:-?} to $AE_DIR" cp -r --no-preserve=mode,ownership "$AE_SRC/." "$AE_DIR/"
     fi
 fi
+# Also repairs an earlier copy whose files are read-only.
+chmod -R u+rwX,go+rX "$AE_DIR" 2> /dev/null || true
 if [ -f "$AE_DIR/CEPHtmlEngine/d3dcompiler_47.dll" ]; then
     run "Adobe's d3dcompiler_47 for Advanced 3D" cp "$AE_DIR/CEPHtmlEngine/d3dcompiler_47.dll" "$SYS32/d3dcompiler_47.dll"
 else
@@ -418,6 +503,7 @@ if [ ${#PLUGIN_DIRS[@]} -eq 0 ] && [ ${#EXT_DIRS[@]} -eq 0 ]; then
 fi
 for d in "${PLUGIN_DIRS[@]}"; do run "plugins from $d" copy_in "$d" "$PLUG_DEST"; done
 for d in "${EXT_DIRS[@]}"; do run "extensions from $d" copy_in "$d" "$CEP_DEST"; done
+chmod -R u+rwX,go+rX "$PLUG_DEST" "$CEP_DEST" "$CEP_USER_DEST" 2> /dev/null || true
 
 step "Settings and menu entry"
 run "AE preferences" "$HERE/scripts/ae_prefs.sh"

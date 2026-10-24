@@ -27,15 +27,21 @@ gcc -O1 -o "$WORK/xcap" "$S/tools/xcap.c" -lX11 || exit 1
 
 XVFB_PID=""
 if [ "${AEGNUX_TEST_XVFB:-1}" = 1 ] && command -v Xvfb > /dev/null; then
+    # All WSL2 distributions share one network namespace, so the abstract X sockets of other
+    # distributions' servers count as taken too (/proc/net/unix lists them).
     N=99
-    while [ -e "/tmp/.X$N-lock" ]; do N=$((N - 1)); done
+    while [ -e "/tmp/.X$N-lock" ] || grep -q "@/tmp/.X11-unix/X$N\$" /proc/net/unix 2> /dev/null; do N=$((N - 1)); done
     Xvfb ":$N" -screen 0 1920x1080x24 -nolisten tcp > /dev/null 2>&1 &
     XVFB_PID=$!
     export DISPLAY=":$N"
-    sleep 2
+    for _ in $(seq 1 50); do xwininfo -root > /dev/null 2>&1 && break; sleep 0.2; done
+    xwininfo -root > /dev/null 2>&1 || { echo "FAIL: Xvfb did not start on $DISPLAY"; kill "$XVFB_PID" 2> /dev/null; exit 1; }
 else
     echo "note: using DISPLAY=${DISPLAY:-}; do not touch the After Effects window during the test"
 fi
+# Wine uses its Wayland driver when WAYLAND_DISPLAY is set, and the windows would not appear
+# on the private X display.
+[ -n "$XVFB_PID" ] && unset WAYLAND_DISPLAY
 
 U=$(aegnux_win_user)
 JSX="$WINEPREFIX/drive_c/users/$U/aegnux_viewer_test.jsx"
@@ -56,12 +62,13 @@ solid.property("ADBE Effect Parade").addProperty("ADBE Invert");
 comp.openInViewer();
 app.endUndoGroup();
 EOF
-# Startup scripts run before the workspace exists, so the test runs 30 s later.
-printf 'app.scheduleTask("$.evalFile(new File(\x27C:/users/%s/aegnux_viewer_test.jsx\x27))", 30000, false);\n' "$U" > "$STARTUP"
+# Startup scripts run before the workspace exists, so the test runs later (AEGNUX_TEST_DELAY
+# seconds after the start).
+printf 'app.scheduleTask("$.evalFile(new File(\x27C:/users/%s/aegnux_viewer_test.jsx\x27))", %s, false);\n' "$U" "$(( ${AEGNUX_TEST_DELAY:-30} * 1000 ))" > "$STARTUP"
 
 "$S/stop_ae.sh" > /dev/null 2>&1
 "$S/clear_crash_state.sh" > /dev/null
-"$S/ae_prefs.sh" > /dev/null
+AEGNUX_COACHMARKS=0 "$S/ae_prefs.sh" > /dev/null
 aegnux_env
 cd "$AE_DIR" || exit 1
 timeout $((WAIT + 30)) wine AfterFX.exe > "$WORK/out.log" 2> "$WORK/err.log" < /dev/null &
@@ -71,11 +78,16 @@ T=0
 while [ "$T" -lt "$WAIT" ]; do
     sleep 10
     T=$((T + 10))
-    # "Advanced 3D is not supported by the current hardware" (CUDA hidden) waits for OK.
+    # 430x211: "Advanced 3D is not supported by the current hardware" (CUDA hidden) waits
+    # for OK. 494x200: "Crash Repair Options" (Continue is the default button).
     for X in $(xdotool search --onlyvisible --class afterfx 2> /dev/null); do
-        if [ "$(xwininfo -id "$X" 2> /dev/null | awk '/Width:/{w=$2} /Height:/{h=$2} END{print w "x" h}')" = 430x211 ]; then
-            xdotool key --window "$X" Return 2> /dev/null
-        fi
+        case "$(xwininfo -id "$X" 2> /dev/null | awk '/Width:/{w=$2} /Height:/{h=$2} END{print w "x" h}')" in
+            430x211|494x200) xdotool key --window "$X" Return 2> /dev/null ;;
+        esac
+    done
+    # Adobe's System Compatibility Report waits for a click on "Continue with known issues".
+    for X in $(xdotool search --onlyvisible --name "System Compatibility Report" 2> /dev/null); do
+        xdotool mousemove --window "$X" 437 481 click 1 2> /dev/null
     done
 done
 

@@ -68,6 +68,12 @@ if [ "$MODE" = dzn ]; then
     if [ -f "$ICD" ]; then
         LIB=$(sed -n 's/.*"library_path": *"\([^"]*\)".*/\1/p' "$ICD")
         if [ -f "$LIB" ]; then ok "dzn: $LIB"; else fail "$ICD points to a missing library: $LIB"; fi
+        API=$(sed -n 's/.*"api_version": *"\([^"]*\)".*/\1/p' "$ICD")
+        case "$API" in
+            1.3.*|1.4.*|1.[5-9].*) ok "dzn ICD api_version: $API" ;;
+            "") warn "dzn ICD has no api_version (rebuild with scripts/build_dzn.sh)" ;;
+            *) warn "dzn ICD api_version is $API, but dzn reports 1.3 (patch 04); rebuild with scripts/build_dzn.sh" ;;
+        esac
     else
         fail "dzn ICD missing: $ICD (run scripts/build_dzn.sh, or set DZN_PREFIX)"
     fi
@@ -88,13 +94,46 @@ else
     warn "vulkaninfo not installed, Vulkan devices not listed ($(aegnux_pkg_hint vulkan-tools))"
 fi
 
+echo "Wine runtime libraries"
+MISSING_LIBS=$(aegnux_wine_libs_missing | tr '\n' ' ')
+if [ -z "$MISSING_LIBS" ]; then
+    ok "every library the Wine runner loads at run time is installed"
+else
+    for s in $MISSING_LIBS; do
+        case "$s" in
+            libXcomposite.so.1) fail "$s missing: OpenGL child windows stay black, so After Effects' Composition panel shows nothing" ;;
+            libX11.so.6|libXext.so.6|libXrender.so.1|libXi.so.6|libXrandr.so.2|libXfixes.so.3) fail "$s missing: Wine's X11 driver loses input, drawing or display handling" ;;
+            libxkbcommon.so.0|libxkbregistry.so.0) fail "$s missing: Wine's X11 driver cannot read the keyboard layout" ;;
+            libfreetype.so.6) fail "$s missing: Wine cannot draw text" ;;
+            libEGL.so.1|libGL.so.1) fail "$s missing: Wine has no OpenGL (the Composition panel and Advanced 3D need it)" ;;
+            *) warn "$s missing: a smaller Wine feature is off (cursors, multi-monitor, font lookup, TLS or gamma)" ;;
+        esac
+    done
+    echo "          $(aegnux_pkg_hint $MISSING_LIBS)"
+fi
+
 if is_wsl; then
     echo "OpenGL"
+    if [ "${AEGNUX_SYSTEM_GL:-0}" = 1 ]; then
+        ok "AEGNUX_SYSTEM_GL=1: the distribution's OpenGL is used"
+    elif [ -f "$AEGNUX_GL_PREFIX/lib/libEGL.so.1" ]; then
+        ok "Mesa 25.2.8 EGL and d3d12 driver: $AEGNUX_GL_PREFIX (first in LD_LIBRARY_PATH for Wine)"
+    else
+        # The distribution's Mesa version is in the file name of its libgallium.
+        DMESA=$(for f in /usr/lib/x86_64-linux-gnu/libgallium-*.so /usr/lib64/libgallium-*.so /usr/lib/libgallium-*.so; do
+                    [ -e "$f" ] && basename "$f" | sed -n 's/^libgallium-\([0-9][0-9]*\.[0-9][0-9]*\(\.[0-9][0-9]*\)\{0,1\}\).*\.so$/\1/p'
+                done | head -n 1)
+        case "${DMESA:-}" in
+            25.*) ok "OpenGL: the distribution's Mesa $DMESA (the version tested is 25.2.8); scripts/build_gl.sh would give every distribution the same one" ;;
+            "") warn "no private OpenGL stack at $AEGNUX_GL_PREFIX and the distribution's Mesa version is unknown; run scripts/build_gl.sh" ;;
+            *) warn "OpenGL: the distribution's Mesa $DMESA is not the tested version (25.2.8): with Mesa 26 After Effects' Composition panel stayed empty. Run scripts/build_gl.sh" ;;
+        esac
+    fi
     GL=""
     for d in /usr/lib/x86_64-linux-gnu/dri /usr/lib64/dri /usr/lib/dri; do
         if [ -e "$d/d3d12_dri.so" ]; then GL="$d/d3d12_dri.so"; break; fi
     done
-    if [ -n "$GL" ]; then ok "Mesa D3D12 GL driver: $GL"; else warn "Mesa's d3d12_dri.so not found: the UI will use llvmpipe (slow); install your distribution's Mesa DRI drivers"; fi
+    if [ -n "$GL" ]; then ok "the distribution's Mesa D3D12 GL driver: $GL"; elif [ ! -f "$AEGNUX_GL_PREFIX/lib/libEGL.so.1" ]; then warn "Mesa's d3d12_dri.so not found: AE's OpenGL display will use llvmpipe (slow); install your distribution's Mesa DRI drivers or run scripts/build_gl.sh"; fi
 fi
 
 echo "Direct3D DLLs in the prefix"
@@ -130,7 +169,7 @@ elif [ -n "$CUDA_LIB" ] && [ -e "$SYS32/nvcuda.dll" ]; then
                 APPLIED=1
             fi
         done < <(aegnux_ae_pref_dirs)
-        if [ "$APPLIED" = 0 ]; then warn "DirectX display setting not applied yet (launch_ae.sh or scripts/ae_prefs.sh applies it)"; fi
+        if [ "$APPLIED" = 0 ]; then warn "display settings not applied yet (launch_ae.sh or scripts/ae_prefs.sh applies them)"; fi
     fi
 else
     ok "CUDA not available: AE renders in software and does not use its DirectX display"
@@ -142,7 +181,13 @@ have xdotool || MISSING="$MISSING xdotool"
 have xwininfo || MISSING="$MISSING x11-utils"
 have x86_64-w64-mingw32-gcc || MISSING="$MISSING mingw-gcc"
 if [ -n "$MISSING" ]; then warn "missing:$MISSING ($(aegnux_pkg_hint $MISSING))"; else ok "xdotool, xwininfo, mingw-w64 gcc"; fi
-if have Xvfb; then ok "Xvfb (tests run on a private display)"; else warn "Xvfb not installed: AE tests run on your desktop ($(aegnux_pkg_hint xvfb))"; fi
+if have Xvfb; then
+    ok "Xvfb (tests run on a private display)"
+else
+    NOTE=""
+    if [ "$(aegnux_family)" = zypper ] && is_wsl; then NOTE="; under WSL that package conflicts with patterns-wsl-tmpfiles, see docs/known-issues.md"; fi
+    warn "Xvfb not installed: AE tests run on your desktop ($(aegnux_pkg_hint xvfb))$NOTE"
+fi
 
 if [ "${1:-}" = --build ]; then
     echo "Build tools (build_dzn.sh)"
@@ -150,7 +195,7 @@ if [ "${1:-}" = --build ]; then
     if [ -n "$MISSING" ]; then
         fail "the dzn build is missing:"
         printf '%s\n' "$MISSING" | sed 's/^/          /'
-        echo "          $(aegnux_pkg_hint gcc git pkg-config ninja python3-mako)"
+        echo "          $(aegnux_pkg_hint gcc gcc-c++ git pkg-config ninja python3-mako)"
         echo "          $(aegnux_mesa_dev_hint)"
     else
         ok "meson $(meson --version), ninja, cc, pkg-config, git, python3 and the Mesa libraries"
