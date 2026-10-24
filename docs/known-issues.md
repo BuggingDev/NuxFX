@@ -243,7 +243,7 @@ independent problems were stacked; the first two hid the third.
    failed to compile (`Invalid compute shader with error :`), the frame task threw error
    517 and the render aborted. Adobe's own `AE/CEPHtmlEngine/d3dcompiler_47.dll`
    (10.0.19041.685) compiles them. `winetricks d3dcompiler_47` installs the old one; copy
-   Adobe's over it (see README, step 5).
+   Adobe's over it (see manual-installation.md, step 5).
 3. **dzn did not implement `vkCmdBindVertexBuffers2`.** DXVK 3.0.1 creates pipelines with
    `VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE` and passes the strides only in
    `vkCmdBindVertexBuffers2(pStrides)`. dzn had the generic stub for that entrypoint and

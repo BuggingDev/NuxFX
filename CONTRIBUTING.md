@@ -17,11 +17,12 @@ By contributing you agree that your contribution is licensed under GPL-3.0-or-la
 ## Scripts, tests and documentation
 
 - Run `bash -n` on shell scripts before committing.
-- Run `tests/run_dxgi_present_test.sh` and `tests/run_ae_viewer_test.sh` where your setup
-  allows it.
+- Run `tests/run_gl_window_test.sh`, `tests/run_ae_viewer_test.sh` and
+  `tests/run_ae_advanced3d_test.sh` (and `tests/run_dxgi_present_test.sh` for dzn changes)
+  where your setup allows it.
 - Do not commit Adobe files, logs with personal data or local paths.
 
 ## Reporting problems
 
-Open an issue with the output of `scripts/doctor.sh`, the distribution and environment
-(WSL2 or native), and the name of the AE log folder. Do not attach Adobe binaries.
+Open an issue with the output of `scripts/doctor.sh`, the distribution and the GPU route (host
+driver or Direct3D 12 / dzn), and the name of the AE log folder. Do not attach Adobe binaries.
