@@ -18,7 +18,7 @@ MISSING=$(aegnux_build_missing)
 if [ -n "$MISSING" ]; then
     echo "the dzn build is missing:" >&2
     printf '%s\n' "$MISSING" | sed 's/^/  /' >&2
-    echo "  $(aegnux_pkg_hint gcc git pkg-config ninja python3-mako)" >&2
+    echo "  $(aegnux_pkg_hint gcc gcc-c++ git pkg-config ninja python3-mako)" >&2
     echo "  $(aegnux_mesa_dev_hint)" >&2
     exit 1
 fi
@@ -75,15 +75,21 @@ for p in "${PATCHES[@]}"; do
     echo "$sum  $name" >> "$APPLIED"
 done
 
-if [ ! -f "$MESA_BUILD/build.ninja" ]; then
-    meson setup "$MESA_BUILD" "$MESA_SRC" \
-        -Dbuildtype=release \
-        -Dvulkan-drivers=microsoft-experimental \
-        -Dgallium-drivers= \
-        -Dplatforms=x11,wayland \
-        -Dglx=disabled -Degl=disabled -Dgbm=disabled -Dopengl=false \
-        -Dgles1=disabled -Dgles2=disabled -Dllvm=disabled \
-        -Dvalgrind=disabled -Dlibunwind=disabled
+MESON_OPTS=(
+    -Dbuildtype=release
+    -Dvulkan-drivers=microsoft-experimental
+    -Dgallium-drivers=
+    -Dplatforms=x11,wayland
+    -Dglx=disabled -Degl=disabled -Dgbm=disabled -Dopengl=false
+    -Dgles1=disabled -Dgles2=disabled -Dllvm=disabled
+    -Dvalgrind=disabled -Dlibunwind=disabled
+)
+if [ -f "$MESA_BUILD/build.ninja" ]; then
+    # Reconfigure so that a build directory left over from another source tree (or with
+    # other options) fails here instead of silently building the wrong tree.
+    meson setup --reconfigure "$MESA_BUILD" "$MESA_SRC" "${MESON_OPTS[@]}"
+else
+    meson setup "$MESA_BUILD" "$MESA_SRC" "${MESON_OPTS[@]}"
 fi
 
 ninja -C "$MESA_BUILD" src/microsoft/vulkan/libvulkan_dzn.so
@@ -93,7 +99,7 @@ install -m 755 "$MESA_BUILD/src/microsoft/vulkan/libvulkan_dzn.so" "$DZN_PREFIX/
 cat > "$DZN_PREFIX/share/vulkan/icd.d/dzn_icd.x86_64.json" <<EOF
 {
     "ICD": {
-        "api_version": "1.1.318",
+        "api_version": "1.3.318",
         "library_arch": "64",
         "library_path": "$DZN_PREFIX/lib/libvulkan_dzn.so"
     },
@@ -103,10 +109,14 @@ EOF
 
 # Optional apiVersion layer (AEGNUX_APIVER_LAYER=1 enables it; patch 04 made it
 # unnecessary in the tested setup)
-mkdir -p "$AEGNUX_LAYER_DIR"
-gcc -shared -fPIC -O2 -o "$AEGNUX_LAYER_DIR/libapiver_layer.so" "$HERE/apiver_layer/apiver_layer.c"
-sed "s|__AEGNUX_LAYER_LIB__|$AEGNUX_LAYER_DIR/libapiver_layer.so|" \
-    "$HERE/apiver_layer/VkLayer_AEGNUX_apiversion.json.in" > "$AEGNUX_LAYER_DIR/VkLayer_AEGNUX_apiversion.json"
+if echo '#include <vulkan/vulkan.h>' | cc -E -x c - > /dev/null 2>&1; then
+    mkdir -p "$AEGNUX_LAYER_DIR"
+    gcc -shared -fPIC -O2 -o "$AEGNUX_LAYER_DIR/libapiver_layer.so" "$HERE/apiver_layer/apiver_layer.c"
+    sed "s|__AEGNUX_LAYER_LIB__|$AEGNUX_LAYER_DIR/libapiver_layer.so|" \
+        "$HERE/apiver_layer/VkLayer_AEGNUX_apiversion.json.in" > "$AEGNUX_LAYER_DIR/VkLayer_AEGNUX_apiversion.json"
+else
+    echo "note: the Vulkan headers are not installed (vulkan-headers, libvulkan-dev); the optional apiVersion layer is not built" >&2
+fi
 
 # Remember the locations so that the other scripts find this build without extra
 # environment variables.
