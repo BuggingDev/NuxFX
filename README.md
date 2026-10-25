@@ -135,19 +135,6 @@ was not reproduced: a 4K, 120 s comp previewed until the RAM cache was full (9.7
 machine) played at real time and After Effects stayed up (`tests/run_ae_ram_preview_heavy_test.sh`).
 More: [docs/troubleshooting.md](docs/troubleshooting.md).
 
-### RAM preview stops slowly and does not start a second time. Why?
-
-It happened on the Direct3D 12 route, where the sound server of the display stack suspends its output
-after five idle seconds and then does not resume the audio stream that After Effects opened at its
-start: the audio thread hangs, a stopped preview takes a second longer and the next preview does not
-start. `scripts/launch_ae.sh` fixes it by playing a silent stream for as long as After Effects runs
-(`scripts/sound_keepalive.sh`, played by `pacat` or by `python3`); sound and RAM preview then both
-work. Start After Effects with `launch_ae.sh`, not with `wine AfterFX.exe`. `scripts/doctor.sh`
-checks the audio setup, and `tests/run_pulse_resume_test.sh` shows the server's behavior without
-Wine. Other sound servers are left as they are. The red needle that runs along the
-timeline during a preview is After Effects' preview position; the blue playhead moves to the stop
-frame when you stop. [Details](docs/troubleshooting.md).
-
 ### What does not work yet?
 
 The Cinema 4D renderer (it needs Maxon's `cineware.dll`), sharing images between CUDA and

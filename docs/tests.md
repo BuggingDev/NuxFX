@@ -15,7 +15,7 @@ tests/run_ae_advanced3d_viewer_test.sh # a 1080p Advanced 3D scene in the Compos
 tests/run_ae_ram_preview_test.sh   # RAM preview plays a 10 s comp at about real time; the red preview needle follows the picture
 tests/run_ae_ram_preview_cached_test.sh # the classic RAM preview: renders the range into RAM first, then plays it in real time
 tests/run_ae_ram_preview_cycles_test.sh # RAM preview starts and stops three times in one session (with the audio output launch_ae.sh gives)
-tests/run_ae_ram_preview_heavy_test.sh  # a 4K, 120 s comp fills the RAM cache; After Effects stays up, memory is logged (needs ~12 GB free)
+tests/run_ae_ram_preview_heavy_test.sh  # a 4K, 120 s comp fills the RAM cache; After Effects stays up, plays at real time, memory is logged (needs ~12 GB free)
 tests/run_pulse_resume_test.sh     # the sound server resumes a stream created corked after its output suspended (no Wine, no After Effects)
 tests/run_ae_text_test.sh          # a new text layer gets a font with letters (Myriad Pro, After Effects' default)
 tests/run_ae_effects_test.sh       # 40 common effects render in CUDA and in software mode
@@ -106,8 +106,9 @@ scripts/gpu_sniffer_test.sh        # dzn entrypoint audit, then After Effects' G
   audio. `run_ae_ram_preview_heavy_test.sh` previews a 3840x2160, 120 s comp for four minutes so the
   RAM cache grows to After Effects' limit, logs the memory of After Effects and Wine every two
   seconds (`mem.txt` in `AEGNUX_TEST_LOGDIR`), stops After Effects if the machine drops below
-  `AEGNUX_RP_MIN_AVAILABLE_MB` (default 2500) and reports the peak. It needs about 12 GB of available
-  memory (it skips below that) and takes about 7 minutes.
+  `AEGNUX_RP_MIN_AVAILABLE_MB` (default 2500) and reports the peak. The red needle is reported but
+  does not decide the verdict there (it can stop in a preview that long, see `docs/known-issues.md`).
+  It needs about 12 GB of available memory (it skips below that) and takes about 7 minutes.
   `run_ae_ram_preview_cycles_test.sh` (the same script with `AEGNUX_RP_CYCLES=3`) starts and stops
   the preview three times in one session: a cycle passes if the preview starts and, after the key
   that stops it, the needle is gone and the blue playhead has moved to the stop frame. The sound
