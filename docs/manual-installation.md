@@ -193,8 +193,9 @@ wineboot -i                           # create the prefix
 wine reg add 'HKCU\Software\Wine' /v Version /d win10 /f
 # winetricks: your distribution's package, or the upstream script (the installer uses release 20250102)
 winetricks -q vcrun2022 d3dcompiler_47
-# winetricks installs the 2013 d3dcompiler_47 (6.3.9600). Advanced 3D needs Adobe's newer one,
-# which is part of the After Effects folder (step 8):
+# Advanced 3D needs a native d3dcompiler_47 in the prefix (the override is native only). Release 20250102
+# installs 10.0.17134.12, which works; an old copy (6.3.9600, from an older winetricks) did not. The
+# installer then puts Adobe's own, newer file (10.0.19041.685) from the After Effects folder (step 8) over it:
 cp "$AE_DIR/CEPHtmlEngine/d3dcompiler_47.dll" "$WINEPREFIX/drive_c/windows/system32/d3dcompiler_47.dll"
 ```
 

@@ -132,14 +132,16 @@ patch 14 every format reports zero features and render target creation fails.
 `vkGetDeviceProcAddr`. It reports NULL entries and groups of non-alias commands that
 share one pointer (how a stub group appears). It cannot identify a single
 unimplemented command that resolves to the stub. Run `gpu_sniffer_test.sh` to
-generate the list and run it.
+generate the list and run it. The list that `scripts/gen_cmds.py` makes puts
+`vkCmdWriteBufferMarker2AMD` and `vkGetQueueCheckpointData2NV` under
+`VK_KHR_synchronization2`; they come from AMD and NV extensions that dzn does not
+advertise, so they show as NULL and are expected.
 
 ## 7. Advanced 3D
 
 Correction: `Advanced3D.aex` (match name `ADBE Advanced 3d`) is the Classic 3D
 renderer. The AE 24 Advanced 3D renderer is `Calder.aex` (`ADBE Calder`). The notes
-that were here described Classic 3D. Current state: section 11 and
-docs/known-issues.md, "Open: Advanced 3D renders solid magenta frames".
+that were here described Classic 3D. Current state: sections 11 and 12.
 
 ## 8. Debugging method used (not in the patches)
 
@@ -261,7 +263,8 @@ error. It reproduced on every click, with the stock driver and with the series u
    signals. A DXVK 3.0.1 rebuilt with a `try`/`catch` around `createFence` returns E_FAIL from
    `OpenSharedResource1` and AE survives the click.
 7. Fix (patch 21): the value of an exported or imported timeline semaphore lives in a memfd page, as
-   described in `docs/known-issues.md`. DXVK only needs CPU signals and CPU waits for a keyed mutex.
+   described in the commit message of patch 21. DXVK only needs CPU signals and CPU waits for a keyed
+   mutex. Patch 26 later made a CPU signal visible at once (a race in the export).
 
 Result on the same machine and driver otherwise unchanged:
 

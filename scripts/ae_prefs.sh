@@ -10,7 +10,8 @@
 #   DirectX display, which passes images between CUDA and Direct3D 12. Wine's CUDA
 #   bridge cannot share resources with vkd3d-proton, so that display never presents
 #   and the panel stays empty. With this setting AE uses its non-DirectX display.
-#   AEGNUX_DIRECTX_DISPLAY=1 leaves the setting alone.
+#   AEGNUX_DIRECTX_DISPLAY=1 does not set it, and sets it back to false where an earlier start wrote it
+#   (the panel is then empty while CUDA is in use).
 # "Pref_SCRIPTING_FILE_NETWORK_SECURITY" = "1" (Prefs.txt, "Main Pref Section v2"), only with AEGNUX_SCRIPT_FILE_ACCESS=1
 #   "Allow Scripts to Write Files and Access Network". The tests that read their result back from a
 #   startup script (text, effects) need it; it is off by default, as in After Effects.
@@ -94,6 +95,9 @@ printf '%s\n' "$DIRS" | while IFS= read -r dir; do
     [ -n "$dir" ] || continue
     if [ "${AEGNUX_DIRECTX_DISPLAY:-0}" != 1 ]; then
         set_db_pref "$dir/Debug Database.txt" DS.DisableDirectXDisplay true false
+    elif grep -q "^DS\.DisableDirectXDisplay$TAB" "$dir/Debug Database.txt" 2> /dev/null; then
+        # an earlier start wrote the flag: switch it off again, otherwise the DirectX display stays disabled
+        set_db_pref "$dir/Debug Database.txt" DS.DisableDirectXDisplay false false
     fi
     if [ "$NO_DEVICES" = true ] || grep -q "^dvaaudiodevice\.ForceNoDevices$TAB" "$dir/Debug Database.txt" 2> /dev/null; then
         set_db_pref "$dir/Debug Database.txt" dvaaudiodevice.ForceNoDevices "$NO_DEVICES" false

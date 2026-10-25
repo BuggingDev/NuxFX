@@ -5,9 +5,9 @@ Subject: [PATCH] dzn: lower gl_PatchVerticesIn to a constant
 
 nir_to_dxil has no instruction for load_patch_vertices_in, which every tessellation shader that reads
 gl_PatchVerticesIn uses (the hull shaders that DXVK generates from Direct3D 11 do). Translating such a
-shader stops at "Unimplemented intrinsic instruction: load_patch_vertices_in", and because the unreachable()
-behind that message is not compiled into a release build, vkCreateGraphicsPipelines then crashes
-(exception 0xc0000005 in the Unix call).
+shader stops at "Unimplemented intrinsic instruction: load_patch_vertices_in", and vkCreateGraphicsPipelines
+then crashed (exception 0xc0000005 in the Unix call). Where the process went wrong after that message was
+not traced: nir_to_dxil returns an error there and dzn passes VK_ERROR_OUT_OF_HOST_MEMORY on.
 
 Direct3D 12 keeps the number of control points in the shader's metadata, so the value is a constant of the
 pipeline: the patch size of VkPipelineTessellationStateCreateInfo for the control shader, and the number of

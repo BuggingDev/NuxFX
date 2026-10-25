@@ -55,7 +55,8 @@ PATCHES=("$REPO"/patches/*.patch)
 REWORDED="0015-dzn-advertise-features-and-extensions-required-by-DX.patch 2b177b3e95a5a8de91143c047c1afbd664652445a84f4f210937bceb4d14a977
 0017-dzn-implement-viewport-and-scissor-with-count.patch e8cf2c501f7fe877dbecfec8cc7b5f5d1927d7aa2766ddf3d075d313844cc330
 0018-dzn-report-the-CUDA-device-UUID-as-the-device-UUID-u.patch 93da27b51fe046f5abd6459a03c27986b6ccf909da97e459c18dec85659a4bd1
-0021-dzn-share-timeline-semaphores-through-a-memfd.patch 87be8eb25fa07f5445687420ce859a8b823b20ad1e901f2bbc2a6317b1b8b05e"
+0021-dzn-share-timeline-semaphores-through-a-memfd.patch 87be8eb25fa07f5445687420ce859a8b823b20ad1e901f2bbc2a6317b1b8b05e
+0025-dzn-lower-gl_PatchVerticesIn-to-a-constant.patch 1c00144818ef7da0db9635e19a493a906ffa6bf1dc42ad5003c5403b519e63e8"
 # A tree that was patched with a patch this series no longer has (the early series was renumbered) cannot
 # take the new ones: git apply would fail on a change that is already there. Say so before it does.
 if [ -s "$APPLIED" ]; then

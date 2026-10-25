@@ -36,7 +36,7 @@ driver or Direct3D 12 / dzn), and the name of the AE log folder. Do not attach A
 
 ```
 install.sh        one-command installer
-patches/          25 patches (git format-patch) against pristine Mesa 25.2.8
+patches/          26 patches (git format-patch) against pristine Mesa 25.2.8
 scripts/          build_dzn.sh          build and install dzn (Direct3D 12 route)
                   build_gl.sh           build and install Mesa's EGL and d3d12 OpenGL driver
                   launch_ae.sh          start After Effects (applies ae_prefs.sh and clear_crash_state.sh)
@@ -50,7 +50,8 @@ scripts/          build_dzn.sh          build and install dzn (Direct3D 12 route
                   gpu_sniffer_test.sh   entrypoint audit, then GPUSniffer
                   dzn_audit.c, gen_cmds.py   entrypoint audit of dzn
                   apiver_layer/         optional Vulkan layer (apiVersion), off by default
-                  tools/                xcap.c (X11 screen capture for the tests), silent_stream.py
+                  tools/                xcap.c (X11 screen capture for the tests), silent_stream.py,
+                                        memcpy_probe.c and pcsample.py (profiling aids)
 tests/            run_*.sh and the C and GLSL sources they build
 docs/             how-it-works.md, configuration.md, troubleshooting.md, wayland.md, tests.md,
                   known-issues.md, technical-note.md, manual-installation.md, screenshots/

@@ -125,14 +125,14 @@ scripts/gpu_sniffer_test.sh        # dzn entrypoint audit, then After Effects' G
   ctypes): a stream is created corked, then three times it is uncorked, fed for three seconds,
   corked and left idle for seven seconds (the server suspends its output after five). A server that
   works answers at once and keeps asking for data. The RDP sink of the Direct3D 12 route's display
-  stack does for the first round only; the second uncork is answered two seconds late or never and
-  the stream takes a few percent of the data. The test then plays the silent stream of
+  stack does for the first round only; the second uncork is answered one to two seconds late and
+  the stream takes about 1% of the data or less. The test then plays the silent stream of
   `sound_keepalive.sh` and repeats the sequence, which must work. It passes when the sequence works
   as it is, or with the silent stream, or when there is no sound server. About 30 to 70 seconds.
 - `run_ae_text_test.sh` creates a text layer with the default font and measures the box of its text
   with `sourceRectAtTime`; a font without Latin letters measures 0 x 0. It passes at 100 x 50 or
   more. Without Myriad Pro in the prefix After Effects chose `NotoSansSignWriting` on a machine with
-  the Noto fonts (see `docs/known-issues.md`); `ae_prefs.sh` copies Myriad Pro from After Effects'
+  the Noto fonts (see `docs/troubleshooting.md`); `ae_prefs.sh` copies Myriad Pro from After Effects'
   own folder. About 1.5 minutes.
 - `run_ae_effects_test.sh` applies 40 common effects (blur, glow, colour, noise, distort, stylize
   and transform effects), each with one non-default parameter, renders frame 0 of each in CUDA
@@ -156,6 +156,22 @@ scripts/gpu_sniffer_test.sh        # dzn entrypoint audit, then After Effects' G
   `d3dcompiler_47.dll`, draws one tessellated quad through DXVK for the factors 1, 8 and 64 and
   counts its red pixels (about 2700 each time). DXVK clamps the factor to dzn's
   `maxTessellationGenerationLevel`, which was 0 before patch 24, and the hull shader it generates
-  reads `gl_PatchVerticesIn`, which crashed `vkCreateGraphicsPipelines` before patch 25. About 1
-  run in 12 ends with a crash message at process exit after the right frame (see
-  `docs/known-issues.md`); the test reports that as a note. About 1 minute.
+  reads `gl_PatchVerticesIn`, which crashed `vkCreateGraphicsPipelines` before patch 25. The program
+  releases its objects before it returns: a Wine process that exits while DXVK's compiler threads are
+  still inside dzn can die at exit ("nested exception on signal stack"). About 1 minute.
+
+## Notes for people who run the tests
+
+- **A Wayland test on a machine whose X11 socket folder is a mount.** wlroots compositors (sway) refuse
+  to start XWayland when `/tmp/.X11-unix` lacks the sticky bit; a desktop distribution creates it with
+  mode 1777, but on the Direct3D 12 route the folder is a mount of another system's socket directory and
+  has none. The test then fails with a message that names the folder. A private mount namespace with a
+  tmpfs of mode 1777 over the folder fixes it without touching the real one, for example
+  `sudo unshare -m --propagation private sh -c 'mount -t tmpfs -o mode=1777 tmpfs /tmp/.X11-unix &&
+  exec su - "$SUDO_USER" -c "cd $PWD && tests/run_ae_wayland_test.sh"'`.
+- **First-start tips and the Home screen come back in every test session.** After Effects saves its
+  preferences only when it quits normally, and `scripts/stop_ae.sh` ends it by killing it. The tests
+  switch the tips off (`AEGNUX_COACHMARKS=0`, written by `ae_prefs.sh`) and the Home screen is off by
+  default; quit After Effects normally to keep the state of your own session.
+- **Removing a font for a test.** Wine reads every file in the prefix's Fonts folder, whatever its
+  extension: to run `run_ae_text_test.sh` without Myriad Pro, move the file out of the folder.

@@ -153,6 +153,25 @@ int main(int argc, char **argv) {
                 red++;
     }
     printf("red pixels %d (expected about 2700)\n", red);
+    fflush(stdout);
+
+    /* End like a D3D11 program should: release everything, so that DXVK stops its pipeline compiler
+     * threads before the process exits (a process that exits while they still compile can die at exit
+     * on this stack, in a few starts out of a hundred). */
+    ctx->lpVtbl->Unmap(ctx, (ID3D11Resource *)staging, 0);
+    ctx->lpVtbl->ClearState(ctx);
+    ctx->lpVtbl->Flush(ctx);
+    rs->lpVtbl->Release(rs);
+    staging->lpVtbl->Release(staging);
+    rtv->lpVtbl->Release(rtv);
+    rt->lpVtbl->Release(rt);
+    ps->lpVtbl->Release(ps);
+    ds->lpVtbl->Release(ds);
+    hs->lpVtbl->Release(hs);
+    vs->lpVtbl->Release(vs);
+    ctx->lpVtbl->Release(ctx);
+    dev->lpVtbl->Release(dev);
+
     if (red == 0)
         return 12;
     return (red < 2400 || red > 3000) ? 13 : 0;

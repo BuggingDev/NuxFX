@@ -27,7 +27,7 @@ flowchart LR
   from the host (`AEGNUX_VULKAN=system`); the installer skips the dzn and Mesa builds. This route is
   written but has not been run on bare hardware yet.
 - **GPU route, Direct3D 12.** The GPU is reachable only through Direct3D 12 (`/dev/dxg`).
-  [Mesa's Dozen driver](https://docs.mesa3d.org/drivers/dozen.html) provides Vulkan. The 25
+  [Mesa's Dozen driver](https://docs.mesa3d.org/drivers/dozen.html) provides Vulkan. The 26
   patches in `patches/` apply to pristine Mesa 25.2.8 and make it good enough for DXVK,
   vkd3d-proton and After Effects. Wine's OpenGL (the Composition panel) uses Mesa's Direct3D 12
   OpenGL driver; `scripts/build_gl.sh` builds that driver and EGL from the same Mesa source into
@@ -45,6 +45,6 @@ flowchart LR
   the Wine display driver, set the After Effects preferences, clear crash state, keep the sound
   output awake, and check everything (`doctor.sh`).
 
-More: [known-issues.md](known-issues.md) (causes and evidence of each fix),
+More: [known-issues.md](known-issues.md) (what is open),
 [technical-note.md](technical-note.md) (how each problem was narrowed down),
 [manual-installation.md](manual-installation.md) (the installer's steps by hand).

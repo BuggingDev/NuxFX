@@ -1,0 +1,118 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: NuxFX contributors
+Date: Sun, 25 Oct 2026 22:00:00 +0300
+Subject: [PATCH] dzn: make a CPU signal of a timeline semaphore visible at once
+
+Device A signals a timeline semaphore on the CPU and exports it right away; device B imports it and
+reads the counter. In about 7 runs in 100 B read 0 (tests/run_semaphore_share_test.sh: "B reads the
+value A had signalled before the import (0)"). ID3D12Fence_Signal on the Direct3D 12 route does not show in
+ID3D12Fence_GetCompletedValue at once, and the export (which creates the shared page) and
+vkGetSemaphoreCounterValue read the fence.
+
+dzn_sync keeps the highest value that vkSignalSemaphore set on the CPU (cpu_value). The counter value
+takes the larger of the fence and cpu_value, the page that an export creates starts at the larger of
+the two, and an import, a reset and a payload move keep it in step with the new payload.
+---
+
+diff --git a/src/microsoft/vulkan/dzn_private.h b/src/microsoft/vulkan/dzn_private.h
+--- a/src/microsoft/vulkan/dzn_private.h
++++ b/src/microsoft/vulkan/dzn_private.h
+@@ -1315,6 +1315,10 @@
+     * semaphore (see dzn_sync.c). NULL for a semaphore that is not shared. */
+    struct dzn_shared_counter *shared;
+    int shared_fd;
++   /* Highest value that vkSignalSemaphore set on the CPU. A CPU signal does not show in
++    * ID3D12Fence_GetCompletedValue at once on the Direct3D 12 route, so the counter value and the
++    * export of a semaphore look at this value as well. */
++   _Atomic uint64_t cpu_value;
+ #endif
+ };
+ 
+diff --git a/src/microsoft/vulkan/dzn_sync.c b/src/microsoft/vulkan/dzn_sync.c
+--- a/src/microsoft/vulkan/dzn_sync.c
++++ b/src/microsoft/vulkan/dzn_sync.c
+@@ -89,6 +89,17 @@
+ }
+ 
+ static void
++dzn_cpu_value_raise(struct dzn_sync *dsync, uint64_t value)
++{
++   uint64_t old = atomic_load_explicit(&dsync->cpu_value, memory_order_relaxed);
++
++   while (old < value &&
++          !atomic_compare_exchange_weak_explicit(&dsync->cpu_value, &old, value,
++                                                 memory_order_release, memory_order_relaxed))
++      ;
++}
++
++static void
+ dzn_shared_release(struct dzn_sync *dsync)
+ {
+    if (!dsync->shared)
+@@ -187,6 +198,7 @@
+    D3D12_FENCE_FLAGS flags = D3D12_FENCE_FLAG_NONE;
+    dsync->shared = NULL;
+    dsync->shared_fd = -1;
++   atomic_init(&dsync->cpu_value, initial_value);
+ #endif
+ 
+    if (FAILED(ID3D12Device1_CreateFence(ddev->dev, initial_value,
+@@ -230,6 +242,7 @@
+       return vk_error(device, VK_ERROR_OUT_OF_DEVICE_MEMORY);
+ 
+ #ifndef _WIN32
++   dzn_cpu_value_raise(dsync, value);
+    if (dsync->shared)
+       dzn_shared_publish(dsync, value);
+ #endif
+@@ -247,6 +260,9 @@
+    *value = ID3D12Fence_GetCompletedValue(dsync->fence);
+ 
+ #ifndef _WIN32
++   uint64_t cpu = atomic_load_explicit(&dsync->cpu_value, memory_order_acquire);
++   if (cpu > *value)
++      *value = cpu;
+    if (dsync->shared) {
+       /* The fence of this device may be ahead (a GPU signal) or behind (a signal from
+        * another device) of the shared page. */
+@@ -270,6 +286,7 @@
+       return vk_error(device, VK_ERROR_OUT_OF_DEVICE_MEMORY);
+ 
+ #ifndef _WIN32
++   atomic_store_explicit(&dsync->cpu_value, 0, memory_order_release);
+    if (dsync->shared)
+       atomic_store_explicit(&dsync->shared->value, 0, memory_order_release);
+ #endif
+@@ -303,6 +320,9 @@
+    ddst->shared_fd = dsrc->shared_fd;
+    dsrc->shared = NULL;
+    dsrc->shared_fd = -1;
++   atomic_store_explicit(&ddst->cpu_value, atomic_load_explicit(&dsrc->cpu_value, memory_order_acquire),
++                         memory_order_release);
++   atomic_store_explicit(&dsrc->cpu_value, 0, memory_order_release);
+ #endif
+    return VK_SUCCESS;
+ }
+@@ -538,8 +558,9 @@
+ 
+    struct dzn_shared_counter *shared = map;
+    shared->magic = DZN_SHARED_COUNTER_MAGIC;
+-   atomic_store_explicit(&shared->value, ID3D12Fence_GetCompletedValue(dsync->fence),
+-                         memory_order_release);
++   uint64_t value = ID3D12Fence_GetCompletedValue(dsync->fence);
++   uint64_t cpu = atomic_load_explicit(&dsync->cpu_value, memory_order_acquire);
++   atomic_store_explicit(&shared->value, cpu > value ? cpu : value, memory_order_release);
+ 
+    dsync->shared_fd = fd;
+    dsync->shared = shared;
+@@ -579,6 +600,7 @@
+    dsync->fence = fence;
+    dsync->shared = shared;
+    dsync->shared_fd = own_fd;
++   atomic_store_explicit(&dsync->cpu_value, value, memory_order_release);
+    return VK_SUCCESS;
+ }
+ 
+-- 
+2.43.0
+

@@ -7,8 +7,9 @@
 # counts the red pixels of the render target. DXVK clamps the factor to the device's
 # maxTessellationGenerationLevel, which dzn used to report as 0, and the hull shader that DXVK
 # generates reads gl_PatchVerticesIn, which made vkCreateGraphicsPipelines crash before patch 25.
-# A run whose frame is right but whose process then dies at exit (about 1 run in 12; "nested exception
-# on signal stack", see docs/known-issues.md) is reported as a note, not as a failure.
+# The program releases its objects before it returns. A Wine process that exits while DXVK's compiler
+# threads are still inside dzn can die at exit ("nested exception on signal stack"); a run whose frame
+# is right but whose process dies that way is reported as a note, not as a failure.
 #
 # Requires: x86_64-w64-mingw32-gcc, Xvfb and an installed dzn build. Only a private Xvfb display
 # is used.

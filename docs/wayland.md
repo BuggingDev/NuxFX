@@ -45,11 +45,13 @@ Not tested: GNOME sessions, fractional scaling, HiDPI and several monitors.
 It is not recommended:
 
 - The runner's `winewayland.so` calls `wl_display_create_queue_with_name`, which libwayland 1.23
-  added. With libwayland-client 1.22 (Ubuntu 24.04) the driver fails to load; Wine logs "Application
-  tried to create a window, but no driver could be loaded" and no window appears. `launch_ae.sh` and
-  `doctor.sh` find this with `ldd -r` and say so.
+  added. With libwayland-client 1.22 (Ubuntu 24.04) `ldd -r` reports it undefined, the driver fails to
+  load, After Effects gets no display driver (`tests/run_ae_wayland_test.sh` prints "Wine display driver
+  in After Effects: none") and no window appears. `launch_ae.sh` and `doctor.sh` find this with `ldd -r`
+  and say so ("Wine's Wayland driver cannot load here: libwayland-client lacks
+  wl_display_create_queue_with_name").
 - With a libwayland-client 1.23.1 (from Debian trixie, in `LD_LIBRARY_PATH` only), After Effects
   starts and draws its workspace in sway, but shows "Advanced 3D is not supported by the current
   hardware" at once. That warning does not appear on the X11 route. The cause was not examined.
 
-Details and evidence: [known-issues.md](known-issues.md).
+Open items and what was not tested: [known-issues.md](known-issues.md).
