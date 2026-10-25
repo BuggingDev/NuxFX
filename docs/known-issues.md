@@ -1,18 +1,11 @@
 # Known issues
 
-Status: 2026-10-25, NuxFX with Wine TkG staging 11.12, DXVK 3.0.1, vkd3d-proton 3.0.1 and Mesa 25.2.8 with
-the patches in `patches/`. How each problem was found and fixed: [technical-note.md](technical-note.md).
+- **Uncompressed 24-bit AVI (and MJPEG AVI) imports as black frames.** AVI with YUY2, UYVY or DV video,
+  and H.264, HEVC, ProRes, DNxHD, MPEG-4, PNG-in-MOV, PSD, TIFF, TGA, DPX, EXR and the other still
+  formats import correctly.
+- **The red needle can stop in a 4K, 120 s RAM preview** (2 of 5 runs of
+  `tests/run_ae_ram_preview_heavy_test.sh`); the picture and the sound are not affected.
+- **After Effects' DirectX display is off**: the CUDA bridge cannot share images with Direct3D, so
+  `ae_prefs.sh` makes After Effects use its other display; CUDA rendering stays on.
 
-- **The red needle can stop in a very long 4K RAM preview.** In a 3840x2160, 120 s preview the
-  red preview-time needle sometimes stops a few seconds after the start (2 of 5 runs of
-  `tests/run_ae_ram_preview_heavy_test.sh`); picture and sound are not affected.
-- **Uncompressed 24-bit AVI imports as black frames.** AVI with YUY2, UYVY or DV video, and
-  H.264, HEVC, ProRes, DNxHD, MPEG-4, PNG and PSD, TIFF, TGA, DPX, EXR and the other still formats
-  import and render correctly (checked with generated files); MJPEG AVI also shows a black thumbnail.
-- **After Effects' DirectX display is off.** The CUDA bridge cannot share images with Direct3D, so
-  `ae_prefs.sh` makes After Effects use its other display (`DS.DisableDirectXDisplay`); CUDA rendering
-  stays on.
-- **dzn lacks transform feedback (a stub that warns), inline uniform blocks and sparse resources.**
-  After Effects, DXVK and vkd3d-proton do not use them.
-- **Wine's own Wayland driver is not used.** After Effects runs through XWayland ([wayland.md](wayland.md)).
-- **Not run:** a host with a native GPU driver, AMD and Intel GPUs, GNOME.
+How each problem was found and fixed: [technical-note.md](technical-note.md).
