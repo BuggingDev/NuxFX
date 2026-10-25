@@ -6,6 +6,9 @@ the patches in `patches/`. How each problem was found and fixed: [technical-note
 - **The red needle can stop in a very long 4K RAM preview.** In a 3840x2160, 120 s preview the
   red preview-time needle sometimes stops a few seconds after the start (2 of 5 runs of
   `tests/run_ae_ram_preview_heavy_test.sh`); picture and sound are not affected.
+- **Uncompressed 24-bit AVI imports as black frames.** AVI with YUY2, UYVY or DV video, and
+  H.264, HEVC, ProRes, DNxHD, MPEG-4, PNG and PSD, TIFF, TGA, DPX, EXR and the other still formats
+  import and render correctly (checked with generated files); MJPEG AVI also shows a black thumbnail.
 - **After Effects' DirectX display is off.** The CUDA bridge cannot share images with Direct3D, so
   `ae_prefs.sh` makes After Effects use its other display (`DS.DisableDirectXDisplay`); CUDA rendering
   stays on.
