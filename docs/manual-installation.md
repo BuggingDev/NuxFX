@@ -4,20 +4,19 @@
 or to set NuxFX up on a distribution the installer does not know. `$AEGNUX_HOME` is
 `~/.local/share/aegnux` unless you changed it.
 
-Two GPU routes exist (see "How it works" in the [README](../README.md)). Steps marked
-*Direct3D 12 hosts* apply only where the GPU is reachable through Direct3D 12 (the route the
-fresh-image tests used); on a Linux machine with a native GPU driver skip them and set
+Two GPU routes exist (see [how-it-works.md](how-it-works.md)). Steps marked *Direct3D 12 route*
+apply only where the GPU is reachable through Direct3D 12 (`/dev/dxg`; the route the fresh-image
+tests used); on a Linux machine with a native GPU driver skip them and set
 `AEGNUX_VULKAN=system`.
-
-The Windows launcher `install.cmd` runs `install.sh` for you from Windows (it needs a Linux
-distribution installed in WSL2).
 
 ## 1. GPU drivers
 
-- **Native driver.** Install your GPU's Vulkan driver (RADV, ANV or NVIDIA) and, for CUDA and
-  Advanced 3D, the current NVIDIA driver, which provides `libcuda.so.1`. Check with
-  `vulkaninfo --summary` and `nvidia-smi`.
-- **Direct3D 12 hosts.** Install the current NVIDIA driver for Windows, then check inside Linux:
+- **Native driver (host-driver route).** Install your GPU's Vulkan driver (RADV, ANV or NVIDIA)
+  and, for CUDA and Advanced 3D, the current NVIDIA driver, which provides `libcuda.so.1`. Check
+  with `vulkaninfo --summary` and `nvidia-smi`.
+- **Direct3D 12 route.** The host provides the GPU through Direct3D 12. Install its current NVIDIA
+  driver, then check inside Linux that the device and the driver's libraries exist (they live in
+  `/usr/lib/wsl/lib` on this route, `AEGNUX_D3D12_LIBDIR`):
 
   ```sh
   ls /dev/dxg /usr/lib/wsl/lib/libd3d12.so /usr/lib/wsl/lib/libcuda.so.1
@@ -68,9 +67,7 @@ sudo zypper install git pkgconf ninja meson python313-Mako curl xz zstd cabextra
     which mingw64-cross-gcc libX11-devel xdotool xwininfo libvulkan1 Mesa-dri
 ```
 
-Use the `python3xx-Mako` that matches `python3 --version`. The `xorg-x11-server-Xvfb` package
-conflicts with `patterns-wsl-tmpfiles` on openSUSE's WSL image (see
-[known-issues.md](known-issues.md)); only the tests need Xvfb.
+Use the `python3xx-Mako` that matches `python3 --version`. Only the tests need Xvfb.
 
 Check `meson --version` (1.4 or newer) on every distribution.
 
@@ -81,25 +78,32 @@ not a distribution package, and Wine does not complain when one is missing: it s
 feature off. A missing `libXcomposite` leaves After Effects' Composition panel black although
 the frames render. `install.sh` installs them, `scripts/doctor.sh` lists the missing ones with the
 install command for your distribution, and `tests/run_gl_window_test.sh` checks the effect.
+`libpulse` is the exception: Wine's audio driver links it. Without it, or without a sound server
+(PulseAudio, or PipeWire with its PulseAudio server), After Effects plays no sound; RAM preview works
+without sound. On the Direct3D 12 route the sound server needs a silent stream while After Effects runs,
+otherwise RAM preview breaks (see [known-issues.md](known-issues.md)); `scripts/launch_ae.sh` plays it
+with `pacat` (`pulseaudio-utils`; `libpulse` on Arch Linux) or, when that is not installed, with
+`python3` and `libpulse`.
 
 ```sh
 # Ubuntu, Debian
 sudo apt install libx11-6 libxext6 libxi6 libxrandr2 libxrender1 libxfixes3 libxcursor1 \
     libxcomposite1 libxinerama1 libxxf86vm1 libxkbcommon0 libxkbregistry0 libfreetype6 \
-    libfontconfig1 libgnutls30 libegl1 libgl1
+    libfontconfig1 libgnutls30 libegl1 libgl1 libpulse0
 # Fedora
 sudo dnf install libX11 libXext libXi libXrandr libXrender libXfixes libXcursor libXcomposite \
-    libXinerama libXxf86vm libxkbcommon freetype fontconfig gnutls libglvnd-egl libglvnd-glx
+    libXinerama libXxf86vm libxkbcommon freetype fontconfig gnutls libglvnd-egl libglvnd-glx \
+    pulseaudio-libs
 # Arch Linux
 sudo pacman -S --needed libx11 libxext libxi libxrandr libxrender libxfixes libxcursor \
-    libxcomposite libxinerama libxxf86vm libxkbcommon freetype2 fontconfig gnutls libglvnd
+    libxcomposite libxinerama libxxf86vm libxkbcommon freetype2 fontconfig gnutls libglvnd libpulse
 # openSUSE
 sudo zypper install libX11-6 libXext6 libXi6 libXrandr2 libXrender1 libXfixes3 libXcursor1 \
     libXcomposite1 libXinerama1 libXxf86vm1 libxkbcommon0 libxkbregistry0 libfreetype6 \
-    libfontconfig1 libgnutls30 libEGL1 libGL1
+    libfontconfig1 libgnutls30 libEGL1 libGL1 libpulse0
 ```
 
-### Libraries for the Mesa builds (Direct3D 12 hosts)
+### Libraries for the Mesa builds (Direct3D 12 route)
 
 Mesa 25.2.8 needs more development packages than the lists above.
 
@@ -136,7 +140,7 @@ cat /proc/sys/vm/max_map_count     # 1048576 or more is fine
 echo 'vm.max_map_count=1048576' | sudo tee /etc/sysctl.d/99-nuxfx.conf && sudo sysctl --system
 ```
 
-## 3. Mesa: dzn and OpenGL (Direct3D 12 hosts)
+## 3. Mesa: dzn and OpenGL (Direct3D 12 route)
 
 ```sh
 cd ~

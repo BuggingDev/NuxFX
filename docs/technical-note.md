@@ -1,8 +1,8 @@
-# Technical note: After Effects 2024 under dzn (Dozen) in WSL2
+# Technical note: After Effects 2024 under dzn (Dozen) on the Direct3D 12 route
 
 Status date: 2026-10-18. Mesa 25.2.8 with the patches in `patches/`. Test host:
-WSL2 Ubuntu 24.04, NVIDIA GeForce RTX 4060 Ti 8 GB, Wine TkG 11.12 runner,
-After Effects 2024 (24.6.2.2), DXVK 3.0.1 as shipped with the aegnux prefix.
+Ubuntu 24.04 on the Direct3D 12 route (`/dev/dxg`), NVIDIA GeForce RTX 4060 Ti 8 GB, Wine TkG 11.12
+runner, After Effects 2024 (24.6.2.2), DXVK 3.0.1 as shipped with the aegnux prefix.
 
 ## 1. Symptom
 
@@ -241,7 +241,7 @@ error. It reproduced on every click, with the stock driver and with the series u
    `VK_ERROR_INVALID_EXTERNAL_HANDLE`, for a duplicate of the fd, for the fd itself and on the same
    device. A debug print in `dzn_sync_import_opaque_fd` showed `OpenSharedHandle` returning
    0x80070057 (E_INVALIDARG).
-5. A raw Direct3D 12 program (WSL's `libd3d12.so` and `libdxcore.so` through `dlopen`, DirectX-Headers)
+5. A raw Direct3D 12 program (the route's `libd3d12.so` and `libdxcore.so` through `dlopen`, DirectX-Headers)
    made the limit visible:
 
    | Object | CreateSharedHandle | OpenSharedHandle on another device |

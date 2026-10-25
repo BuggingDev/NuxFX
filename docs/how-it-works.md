@@ -27,16 +27,23 @@ flowchart LR
   from the host (`AEGNUX_VULKAN=system`); the installer skips the dzn and Mesa builds. This route is
   written but has not been run on bare hardware yet.
 - **GPU route, Direct3D 12.** The GPU is reachable only through Direct3D 12 (`/dev/dxg`).
-  [Mesa's Dozen driver](https://docs.mesa3d.org/drivers/dozen.html) provides Vulkan. The 21
+  [Mesa's Dozen driver](https://docs.mesa3d.org/drivers/dozen.html) provides Vulkan. The 25
   patches in `patches/` apply to pristine Mesa 25.2.8 and make it good enough for DXVK,
   vkd3d-proton and After Effects. Wine's OpenGL (the Composition panel) uses Mesa's Direct3D 12
   OpenGL driver; `scripts/build_gl.sh` builds that driver and EGL from the same Mesa source into
   their own folder and the scripts put it first in `LD_LIBRARY_PATH`, so it does not depend on the
   Mesa of the distribution (Mesa 26 left the panel empty). All five verification runs took this
   route.
+- **Audio.** After Effects plays through winmm, Wine's PulseAudio driver and the machine's sound
+  server (PulseAudio, or PipeWire's PulseAudio server). RAM preview needs that path to work or to be
+  absent. The sound server of the Direct3D 12 route suspends its output when idle and does not resume
+  the stream that After Effects opened at its start, which breaks RAM preview after the first stop,
+  so `launch_ae.sh` plays a silent stream next to After Effects (`scripts/sound_keepalive.sh`;
+  [known-issues.md](known-issues.md) has the evidence). `AEGNUX_AUDIO_DEVICES=0` turns After Effects'
+  audio devices off instead.
 - **The scripts** keep the setup stable: they install the libraries Wine opens at run time, pick
-  the Wine display driver, set the After Effects preferences, clear crash state, and check
-  everything (`doctor.sh`).
+  the Wine display driver, set the After Effects preferences, clear crash state, keep the sound
+  output awake, and check everything (`doctor.sh`).
 
 More: [known-issues.md](known-issues.md) (causes and evidence of each fix),
 [technical-note.md](technical-note.md) (how each problem was narrowed down),

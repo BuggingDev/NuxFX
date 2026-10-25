@@ -49,8 +49,8 @@ skipped when you run it again. Options: `./install.sh --help`. Update: `git pull
 | Advanced 3D renderer: cameras, lights, shadows, extruded text, up to 1920x1080 | Works |
 | Classic 3D renderer and Direct3D 11 windows | Works |
 | 40 common effects, rendered with CUDA and in software | Work |
-| X11 and Wayland sessions | Work (Wayland through XWayland) |
-| RAM preview | Partly: the picture plays in real time, the timeline playhead stays at the start |
+| X11 and Wayland sessions | Work (Wayland through XWayland; tested on KDE Plasma's KWin and on sway) |
+| RAM preview | Works: real-time playback with sound, and as in After Effects itself the blue playhead stays put while a red preview-time needle follows the picture and the playhead jumps to the stop frame |
 | Cinema 4D renderer | Does not work |
 
 Verified on Ubuntu 24.04, Debian 13, Fedora 44, Arch Linux and openSUSE Tumbleweed, with Wine TkG
@@ -59,28 +59,25 @@ staging 11.12, DXVK 3.0.1, vkd3d-proton 3.0.1 and Mesa 25.2.8. What was tested, 
 
 ## Screenshots
 
-After Effects 2024 under Wine on a Linux desktop (Openbox on a private X server), and in a Wayland
-session (sway). The Advanced 3D screenshot is at the top.
+After Effects 2024 under Wine on an X11 desktop (Openbox on a private X server) and in a KDE Plasma
+Wayland session. The Advanced 3D screenshot is at the top.
 
 ![After Effects 2024 on Linux: a 1080p title composition with shape layers, text and a Glow effect](docs/screenshots/after-effects-title.png)
 
-*A 1080p title composition with shape layers, text and a Glow effect.*
+*A 1080p title composition with shape layers, text and a Glow effect (Openbox, X11).*
 
-![After Effects 2024 on Linux: the Effect Controls panel with the Glow effect](docs/screenshots/after-effects-effects.png)
+![After Effects 2024 on KDE Plasma (Wayland): an Aurora composition of gradient ramps, fractal noise and a blur, with Konsole and fastfetch](docs/screenshots/after-effects-kde-plasma.png)
 
-*The Effect Controls panel of the same composition: Glow and its parameters.*
-
-![After Effects 2024 in a Wayland session: sway, XWayland and fastfetch in a native Wayland terminal](docs/screenshots/after-effects-wayland.png)
-
-*After Effects in a Wayland session: sway, XWayland, and fastfetch in a native Wayland terminal.*
+*KDE Plasma 5.27 on Wayland (KWin, XWayland): an "Aurora" composition made of gradient ramps, fractal
+noise and a blur. Konsole shows `echo $XDG_SESSION_TYPE` (wayland) and fastfetch.*
 
 ## FAQ
 
 ### Does Adobe After Effects run on Linux?
 
 Yes, with NuxFX. It runs After Effects 2024 (24.6.2) through Wine. The Composition panel, CUDA
-acceleration, the Advanced 3D renderer and 40 tested effects work. Known gaps: during RAM preview
-the timeline playhead stays at the start, and the Cinema 4D renderer does not work.
+acceleration, the Advanced 3D renderer, RAM preview and 40 tested effects work. The Cinema 4D
+renderer does not.
 
 ### How do I install After Effects on Linux?
 
@@ -96,9 +93,9 @@ your own licensed copy of After Effects 2024. NuxFX itself is free software (GPL
 ### Does it work on Wayland?
 
 Yes. After Effects runs through Wine's X11 driver, which is XWayland on a Wayland desktop (GNOME,
-KDE Plasma, sway, Hyprland), so there is nothing to configure. It was tested in a sway compositor;
-GNOME and KDE sessions were not tested. Wine's own Wayland driver is not recommended.
-[Details](docs/wayland.md).
+KDE Plasma, sway, Hyprland), so there is nothing to configure. It was tested on KDE Plasma's KWin
+and on sway (`tests/run_ae_wayland_test.sh`); GNOME was not tested. Wine's own Wayland driver is not
+recommended. [Details](docs/wayland.md).
 
 ### Which GPU do I need?
 
@@ -134,13 +131,28 @@ acceleration, X11 and Wayland handling, a health check (`scripts/doctor.sh`) and
 
 Check `vm.max_map_count`. Some distributions ship the old default of 65530, a likely cause.
 `scripts/doctor.sh` warns below 1048576 and the installer raises it. A crash with nearly full memory
-was not reproduced in the tests. More: [docs/troubleshooting.md](docs/troubleshooting.md).
+was not reproduced: a 4K, 120 s comp previewed until the RAM cache was full (9.7 GB on a 24 GB
+machine) played at real time and After Effects stayed up (`tests/run_ae_ram_preview_heavy_test.sh`).
+More: [docs/troubleshooting.md](docs/troubleshooting.md).
+
+### RAM preview stops slowly and does not start a second time. Why?
+
+It happened on the Direct3D 12 route, where the sound server of the display stack suspends its output
+after five idle seconds and then does not resume the audio stream that After Effects opened at its
+start: the audio thread hangs, a stopped preview takes a second longer and the next preview does not
+start. `scripts/launch_ae.sh` fixes it by playing a silent stream for as long as After Effects runs
+(`scripts/sound_keepalive.sh`, played by `pacat` or by `python3`); sound and RAM preview then both
+work. Start After Effects with `launch_ae.sh`, not with `wine AfterFX.exe`. `scripts/doctor.sh`
+checks the audio setup, and `tests/run_pulse_resume_test.sh` shows the server's behavior without
+Wine. Other sound servers are left as they are. The red needle that runs along the
+timeline during a preview is After Effects' preview position; the blue playhead moves to the stop
+frame when you stop. [Details](docs/known-issues.md).
 
 ### What does not work yet?
 
-The playhead during RAM preview, the Cinema 4D renderer (it needs Maxon's `cineware.dll`), sharing
-images between CUDA and Direct3D, and imported 3D models (not tested). AMD and Intel GPUs and bare
-hardware were not tested. The full list: [docs/known-issues.md](docs/known-issues.md).
+The Cinema 4D renderer (it needs Maxon's `cineware.dll`), sharing images between CUDA and
+Direct3D, and imported 3D models (not tested). AMD and Intel GPUs and bare hardware were not tested.
+The full list: [docs/known-issues.md](docs/known-issues.md).
 
 ## Documentation
 

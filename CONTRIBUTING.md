@@ -36,7 +36,7 @@ driver or Direct3D 12 / dzn), and the name of the AE log folder. Do not attach A
 
 ```
 install.sh        one-command installer
-patches/          21 patches (git format-patch) against pristine Mesa 25.2.8
+patches/          25 patches (git format-patch) against pristine Mesa 25.2.8
 scripts/          build_dzn.sh          build and install dzn (Direct3D 12 route)
                   build_gl.sh           build and install Mesa's EGL and d3d12 OpenGL driver
                   launch_ae.sh          start After Effects (applies ae_prefs.sh and clear_crash_state.sh)
@@ -44,11 +44,13 @@ scripts/          build_dzn.sh          build and install dzn (Direct3D 12 route
                   doctor.sh             read-only check of host, prefix, After Effects and tools
                   ae_prefs.sh           the After Effects preferences this setup needs
                   clear_crash_state.sh  clears After Effects' previous-crash state
-                  common.sh             shared settings, platform and display detection, package hints
+                  common.sh             shared settings, platform and display detection, audio plan, package hints
+                  sound_keepalive.sh    silent stream that keeps the sound server's output awake (RAM preview)
+                  null_audio.sh         optional silent PulseAudio server of its own (AEGNUX_NULL_AUDIO=1)
                   gpu_sniffer_test.sh   entrypoint audit, then GPUSniffer
                   dzn_audit.c, gen_cmds.py   entrypoint audit of dzn
                   apiver_layer/         optional Vulkan layer (apiVersion), off by default
-                  tools/xcap.c          X11 screen capture for the tests
+                  tools/                xcap.c (X11 screen capture for the tests), silent_stream.py
 tests/            run_*.sh and the C and GLSL sources they build
 docs/             how-it-works.md, configuration.md, troubleshooting.md, wayland.md, tests.md,
                   known-issues.md, technical-note.md, manual-installation.md, screenshots/
