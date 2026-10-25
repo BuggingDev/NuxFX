@@ -6,7 +6,7 @@
 # After Effects are started; it takes about half a minute and plays only silence.
 #
 # The sound server of the Direct3D 12 route's display stack (its output is an RDP sink) fails it: the uncork of the second
-# round is answered two seconds late or never and the stream stops asking for data (docs/known-issues.md). That
+# round is answered two seconds late or never and the stream stops asking for data (docs/troubleshooting.md). That
 # is not a failure of the setup: scripts/sound_keepalive.sh plays a silent stream so the sink never suspends,
 # and the test then runs the same sequence again with it. It fails only if the sequence breaks with
 # the silent stream as well, or if the server needs it and nothing can play it (no pacat and no python3).

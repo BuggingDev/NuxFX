@@ -45,7 +45,8 @@ int WINAPI WinMain(HINSTANCE hi, HINSTANCE hp, LPSTR cmd, int show) {
         ctx->lpVtbl->OMSetRenderTargets(ctx, 1, &rtv, NULL);
         ctx->lpVtbl->ClearRenderTargetView(ctx, rtv, red);
         /* A staging copy of the backbuffer at frame 5 is required: without it this
-           test presents black even with the dzn fix (docs/known-issues.md). */
+           test presents black even with the dzn fix (a frame that is only cleared presents black
+           under DXVK; programs that draw are not affected). */
         if (i == 5) {
             D3D11_TEXTURE2D_DESC td = {0};
             bb->lpVtbl->GetDesc(bb, &td);

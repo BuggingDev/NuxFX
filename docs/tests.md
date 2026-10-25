@@ -113,7 +113,7 @@ scripts/gpu_sniffer_test.sh        # dzn entrypoint audit, then After Effects' G
   that stops it, the needle is gone and the blue playhead has moved to the stop frame. The sound
   server of the Direct3D 12 route's display stack breaks this unless a silent stream keeps its
   output awake: the first stop takes a second longer and the next preview does not start (see
-  `docs/known-issues.md`). Both tests give After Effects the audio output that `launch_ae.sh`
+  `docs/troubleshooting.md`). Both tests give After Effects the audio output that `launch_ae.sh`
   gives it (`AEGNUX_TEST_AUDIO=auto`, the default: the machine's sound server, plus the silent
   stream of `scripts/sound_keepalive.sh` when its output is an RDP sink). `AEGNUX_TEST_AUDIO=host`
   uses the machine's sound server as it is (the cycles test fails on that server: the check that
@@ -141,7 +141,8 @@ scripts/gpu_sniffer_test.sh        # dzn entrypoint audit, then After Effects' G
   picture and how far the two modes differ. About 8 minutes.
 - `run_push_descriptor_test.sh` checks that push descriptors reach a compute shader.
   `run_descriptor_features_test.sh` checks which descriptor features the Vulkan device supports:
-  null buffer descriptors work, inline uniform blocks do not (see `docs/known-issues.md`).
+  null buffer descriptors work, inline uniform blocks do not (dzn advertises them but does not
+  implement them; DXVK and vkd3d-proton never allocate one).
 - `run_robustness_test.sh` (no Wine, no After Effects) runs five compute shaders, each as its own
   process, for the VK_EXT_robustness2 behaviour that DXVK and vkd3d-proton rely on for Direct3D's
   out-of-range rules: a storage and a uniform buffer descriptor whose range is smaller than the

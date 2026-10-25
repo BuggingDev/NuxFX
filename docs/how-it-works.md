@@ -39,7 +39,7 @@ flowchart LR
   absent. The sound server of the Direct3D 12 route suspends its output when idle and does not resume
   the stream that After Effects opened at its start, which breaks RAM preview after the first stop,
   so `launch_ae.sh` plays a silent stream next to After Effects (`scripts/sound_keepalive.sh`;
-  [known-issues.md](known-issues.md) has the evidence). `AEGNUX_AUDIO_DEVICES=0` turns After Effects'
+  [troubleshooting.md](troubleshooting.md) has the details). `AEGNUX_AUDIO_DEVICES=0` turns After Effects'
   audio devices off instead.
 - **The scripts** keep the setup stable: they install the libraries Wine opens at run time, pick
   the Wine display driver, set the After Effects preferences, clear crash state, keep the sound

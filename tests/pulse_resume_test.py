@@ -9,7 +9,7 @@ against the sound server that PULSE_SERVER names (or the default one), without W
 
 A server that works answers every cork and uncork at once and asks for data all the time. The RDP sink of the
 Direct3D 12 route's sound server does for the first round only: after the idle time the uncork is answered two seconds late or never, and the stream
-stops asking for data. After Effects' audio thread then hangs, and RAM preview breaks (docs/known-issues.md).
+stops asking for data. After Effects' audio thread then hangs, and RAM preview breaks (docs/troubleshooting.md).
 
 usage: pulse_resume_test.py [ROUNDS [IDLE_SECONDS]]
 exit status: 0 every round worked, 1 a round stalled, 2 no sound server or no output to play on

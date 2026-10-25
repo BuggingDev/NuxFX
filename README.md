@@ -146,7 +146,7 @@ work. Start After Effects with `launch_ae.sh`, not with `wine AfterFX.exe`. `scr
 checks the audio setup, and `tests/run_pulse_resume_test.sh` shows the server's behavior without
 Wine. Other sound servers are left as they are. The red needle that runs along the
 timeline during a preview is After Effects' preview position; the blue playhead moves to the stop
-frame when you stop. [Details](docs/known-issues.md).
+frame when you stop. [Details](docs/troubleshooting.md).
 
 ### What does not work yet?
 

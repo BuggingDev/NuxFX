@@ -264,7 +264,7 @@ EOF
 # 5 idle seconds, and a stream that was created corked meanwhile (After Effects opens its stream when it
 # starts and uncorks it when a preview starts) is not resumed properly. The uncork is answered after
 # two seconds or never and the stream never asks for data, so After Effects' audio thread hangs, stopping a
-# preview takes a second longer, and the next preview does not start (docs/known-issues.md,
+# preview takes a second longer, and the next preview does not start (docs/troubleshooting.md,
 # tests/run_pulse_resume_test.sh). aegnux_audio_plan says what is done about it:
 #   host       nothing: the machine's sound server as it is (or none, which works as well)
 #   keepalive  a silent stream keeps the RDP sink awake (scripts/sound_keepalive.sh; sound works)
@@ -339,7 +339,7 @@ aegnux_audio_up() {
             if "$AEGNUX_SCRIPTS_DIR/sound_keepalive.sh" --parent "$$" > /dev/null; then
                 AEGNUX_AUDIO_STARTED=keepalive
             else
-                echo "note: scripts/sound_keepalive.sh could not start the silent stream; RAM preview may break (docs/known-issues.md)" >&2
+                echo "note: scripts/sound_keepalive.sh could not start the silent stream; RAM preview may break (docs/troubleshooting.md)" >&2
             fi
             ;;
     esac

@@ -81,7 +81,7 @@ install command for your distribution, and `tests/run_gl_window_test.sh` checks 
 `libpulse` is the exception: Wine's audio driver links it. Without it, or without a sound server
 (PulseAudio, or PipeWire with its PulseAudio server), After Effects plays no sound; RAM preview works
 without sound. On the Direct3D 12 route the sound server needs a silent stream while After Effects runs,
-otherwise RAM preview breaks (see [known-issues.md](known-issues.md)); `scripts/launch_ae.sh` plays it
+otherwise RAM preview breaks (see [troubleshooting.md](troubleshooting.md)); `scripts/launch_ae.sh` plays it
 with `pacat` (`pulseaudio-utils`; `libpulse` on Arch Linux) or, when that is not installed, with
 `python3` and `libpulse`.
 

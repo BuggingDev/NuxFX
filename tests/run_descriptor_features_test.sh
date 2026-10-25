@@ -6,8 +6,8 @@
 # for a storage buffer and a uniform buffer) and inlineUniformBlock (a uniform block whose data
 # lives in the descriptor set). Each runs as its own process, because a driver that cannot do
 # it may crash. The null descriptor checks must pass. The inline uniform block is reported: it
-# is not implemented in dzn (the descriptor pool refuses the allocation, see known-issues.md),
-# so a failure there is a known limitation, not a test failure.
+# is not implemented in dzn (the descriptor pool refuses the allocation; DXVK and vkd3d-proton
+# never allocate one), so a failure there is a known limitation, not a test failure.
 #
 # Requires: cc, the Vulkan headers and loader (libvulkan-dev), glslangValidator and dzn.
 set -u
@@ -50,7 +50,7 @@ rc=${PIPESTATUS[0]}
 case "$rc" in
     0) echo "note: inline uniform blocks work" ;;
     77) echo "note: inline uniform blocks are not advertised" ;;
-    *) echo "note: inline uniform blocks do not work (status $rc); not implemented in dzn, see docs/known-issues.md" ;;
+    *) echo "note: inline uniform blocks do not work (status $rc); not implemented in dzn (nothing in this stack allocates one)" ;;
 esac
 
 if [ "$RC" -eq 0 ]; then

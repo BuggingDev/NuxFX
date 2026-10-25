@@ -53,5 +53,3 @@ It is not recommended:
 - With a libwayland-client 1.23.1 (from Debian trixie, in `LD_LIBRARY_PATH` only), After Effects
   starts and draws its workspace in sway, but shows "Advanced 3D is not supported by the current
   hardware" at once. That warning does not appear on the X11 route. The cause was not examined.
-
-Open items and what was not tested: [known-issues.md](known-issues.md).

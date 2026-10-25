@@ -168,7 +168,7 @@ echo "Audio"
 # (libasound.so.2). RAM preview works without any audio device, and with a sound server that works. The RDP
 # sink of the Direct3D 12 route's sound server (/mnt/wslg/PulseServer) suspends after 5 idle seconds and does not resume a
 # stream that was created corked, which is After Effects' audio stream: its audio thread hangs, a stopped
-# preview takes a second longer, and the next preview does not start (docs/known-issues.md). A silent stream
+# preview takes a second longer, and the next preview does not start (docs/troubleshooting.md). A silent stream
 # played by scripts/sound_keepalive.sh keeps that sink awake; launch_ae.sh starts it.
 PLAN=$(aegnux_audio_plan)
 case "$PLAN" in
@@ -196,7 +196,7 @@ case "$PLAN" in
             ok "audio: no sound server and no ALSA card; After Effects plays no sound, RAM preview works without it"
         fi
         if [ "${AEGNUX_SOUND_KEEPALIVE:-auto}" = 0 ] && [ "${PULSE_SERVER:-}" = "unix:/mnt/wslg/PulseServer" ] && [ -S /mnt/wslg/PulseServer ]; then
-            warn "AEGNUX_SOUND_KEEPALIVE=0 with the sound server of the Direct3D 12 route: RAM preview breaks after the first stop (docs/known-issues.md)"
+            warn "AEGNUX_SOUND_KEEPALIVE=0 with the sound server of the Direct3D 12 route: RAM preview breaks after the first stop (docs/troubleshooting.md)"
         fi
         ;;
 esac

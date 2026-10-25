@@ -102,8 +102,8 @@ test failed on these items, now fixed by the series (result 529, pass):
 
 DXVK 3.0.1 also refuses an adapter that lacks `inlineUniformBlock`, `nullDescriptor`
 or `shaderZeroInitializeWorkgroupMemory` (log line "Device does not support required
-feature"). Those bits are advertised (patches 15 and 16). See known-issues.md for
-what is not implemented behind `inlineUniformBlock` and `nullDescriptor`.
+feature"). Those bits are advertised (patches 15 and 16). `nullDescriptor` works;
+`inlineUniformBlock` is advertised but not implemented (DXVK and vkd3d-proton never allocate one).
 
 DXVK reads format features only through VkFormatProperties3 (core 1.3). Without
 patch 14 every format reports zero features and render target creation fails.
@@ -112,7 +112,7 @@ patch 14 every format reports zero features and render target creation fails.
 
 | Patch | Extensions / entrypoints | Implementation |
 |---|---|---|
-| 04 | apiVersion reported to the loader | Workaround, see known-issues |
+| 04 | apiVersion reported to the loader | Workaround, see the patch |
 | 05 | VK_KHR_maintenance4, VK_KHR_maintenance5 | Real: memory requirements by create-info, subresource layouts, index buffer size |
 | 06 | VK_KHR_maintenance6 | Real: v2 bind and push constant wrappers |
 | 07 | VK_KHR_push_descriptor | Real: per-command-buffer descriptor pools |
@@ -123,7 +123,7 @@ patch 14 every format reports zero features and render target creation fails.
 | 12 | VK_KHR_vulkan_memory_model | SPIR-V memory model accepted |
 | 13 | minImageTransferGranularity | Reporting change |
 | 14 | VkFormatProperties3 | Mirrors legacy masks |
-| 15 | many feature bits | Mixed, see known-issues |
+| 15 | many feature bits | Mixed, see the patch (inline uniform blocks are not implemented) |
 | 16 | shaderZeroInitializeWorkgroupMemory | Real: NIR pass |
 
 ## 6. Audit tool
