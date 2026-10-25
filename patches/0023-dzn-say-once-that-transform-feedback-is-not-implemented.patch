@@ -1,0 +1,75 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: NuxFX contributors
+Date: Sun, 25 Oct 2026 03:50:00 +0300
+Subject: [PATCH] dzn: say once that transform feedback is not implemented
+
+The VK_EXT_transform_feedback entrypoints are stubs (patch 09): stream output is dropped. They have
+to stay, because vkd3d-proton refuses to create a D3D12 device without the extension and its
+transformFeedbackQueries property. An application that really writes through transform feedback
+(D3D11 stream output in DXVK, D3D12 SO targets in vkd3d-proton) then gets nothing in its buffers
+and nothing in the log.
+
+The first call of vkCmdBindTransformFeedbackBuffersEXT, vkCmdBeginTransformFeedbackEXT or
+vkCmdDrawIndirectByteCountEXT now prints one line:
+
+    dzn: VK_EXT_transform_feedback is not implemented: stream output is dropped
+
+Applications that do not use transform feedback never call these entrypoints and see no change.
+---
+ src/microsoft/vulkan/dzn_cmd_buffer.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/src/microsoft/vulkan/dzn_cmd_buffer.c b/src/microsoft/vulkan/dzn_cmd_buffer.c
+index 618e676..8963078 100644
+--- a/src/microsoft/vulkan/dzn_cmd_buffer.c
++++ b/src/microsoft/vulkan/dzn_cmd_buffer.c
+@@ -27,6 +27,8 @@
+ #include "vk_debug_report.h"
+ #include "vk_format.h"
+ #include "vk_util.h"
++#include "util/log.h"
++#include "util/u_atomic.h"
+ 
+ #include "dxil_spirv_nir.h"
+ 
+@@ -6140,6 +6142,16 @@
+    cmdbuf->state.dirty |= DZN_CMD_DIRTY_STENCIL_REF;
+ }
+ 
++/* The transform feedback entrypoints below are stubs. Say so once, the first time an application
++ * uses them, so that dropped stream output shows up in the log and not only in a wrong picture. */
++static void
++dzn_warn_transform_feedback_stub(void)
++{
++   static int warned;
++   if (p_atomic_cmpxchg(&warned, 0, 1) == 0)
++      mesa_logw("dzn: VK_EXT_transform_feedback is not implemented: stream output is dropped");
++}
++
+ /* VK_EXT_transform_feedback: dzn has no stream-output lowering yet. The
+  * entrypoints exist so the extension can be advertised; vkd3d-proton refuses
+  * to create a D3D12 device without it. Stream output is dropped, not emulated. */
+@@ -6151,6 +6163,7 @@
+                                        const VkDeviceSize *pOffsets,
+                                        const VkDeviceSize *pSizes)
+ {
++   dzn_warn_transform_feedback_stub();
+ }
+ 
+ VKAPI_ATTR void VKAPI_CALL
+@@ -6160,6 +6173,7 @@
+                                  const VkBuffer *pCounterBuffers,
+                                  const VkDeviceSize *pCounterBufferOffsets)
+ {
++   dzn_warn_transform_feedback_stub();
+ }
+ 
+ VKAPI_ATTR void VKAPI_CALL
+@@ -6202,6 +6216,7 @@
+                                 uint32_t counterOffset,
+                                 uint32_t vertexStride)
+ {
++   dzn_warn_transform_feedback_stub();
+ }
+ 
+ /* VK_KHR_maintenance6 (core 1.4) command variants. The common runtime forwards

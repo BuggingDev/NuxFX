@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: NuxFX contributors
+Date: Sun, 25 Oct 2026 15:00:00 +0300
+Subject: [PATCH] dzn: lower gl_PatchVerticesIn to a constant
+
+nir_to_dxil has no instruction for load_patch_vertices_in, which every tessellation shader that reads
+gl_PatchVerticesIn uses (the hull shaders that DXVK generates from Direct3D 11 do). Translating such a
+shader stops at "Unimplemented intrinsic instruction: load_patch_vertices_in", and because the unreachable()
+behind that message is not compiled into a release build, vkCreateGraphicsPipelines then crashes
+(exception 0xc0000005 in the Unix call).
+
+Direct3D 12 keeps the number of control points in the shader's metadata, so the value is a constant of the
+pipeline: the patch size of VkPipelineTessellationStateCreateInfo for the control shader, and the number of
+control points that the control shader outputs for the evaluation shader. nir_lower_patch_vertices lowers it.
+The patch size is part of the pipeline and shader cache keys.
+---
+ src/microsoft/vulkan/dzn_pipeline.c | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/src/microsoft/vulkan/dzn_pipeline.c b/src/microsoft/vulkan/dzn_pipeline.c
+--- a/src/microsoft/vulkan/dzn_pipeline.c
++++ b/src/microsoft/vulkan/dzn_pipeline.c
+@@ -812,6 +812,12 @@
+    if (pipeline->use_gs_for_polygon_mode_point)
+       last_raster_stage = MESA_SHADER_GEOMETRY;
+ 
++   /* nir_to_dxil has no instruction for gl_PatchVerticesIn: it becomes a constant of the pipeline (below). */
++   uint32_t patch_control_points = 0;
++   if ((active_stage_mask & (BITFIELD_BIT(MESA_SHADER_TESS_CTRL) | BITFIELD_BIT(MESA_SHADER_TESS_EVAL))) &&
++       info->pTessellationState)
++      patch_control_points = info->pTessellationState->patchControlPoints;
++
+    enum dxil_spirv_yz_flip_mode yz_flip_mode = DXIL_SPIRV_YZ_FLIP_NONE;
+    uint16_t y_flip_mask = 0, z_flip_mask = 0;
+    bool lower_view_index =
+@@ -856,6 +862,7 @@
+       _mesa_sha1_update(&pipeline_hash_ctx, &force_sample_rate_shading, sizeof(force_sample_rate_shading));
+       _mesa_sha1_update(&pipeline_hash_ctx, &lower_view_index, sizeof(lower_view_index));
+       _mesa_sha1_update(&pipeline_hash_ctx, &pipeline->use_gs_for_polygon_mode_point, sizeof(pipeline->use_gs_for_polygon_mode_point));
++      _mesa_sha1_update(&pipeline_hash_ctx, &patch_control_points, sizeof(patch_control_points));
+ 
+       u_foreach_bit(stage, active_stage_mask) {
+          const VkPipelineShaderStageRequiredSubgroupSizeCreateInfo *subgroup_size =
+@@ -898,6 +905,8 @@
+          }
+          if (stage == MESA_SHADER_VERTEX)
+             _mesa_sha1_update(&nir_hash_ctx, attribs_hash, sizeof(attribs_hash));
++         if (stage == MESA_SHADER_TESS_CTRL || stage == MESA_SHADER_TESS_EVAL)
++            _mesa_sha1_update(&nir_hash_ctx, &patch_control_points, sizeof(patch_control_points));
+          if (stage == last_raster_stage) {
+             _mesa_sha1_update(&nir_hash_ctx, &yz_flip_mode, sizeof(yz_flip_mode));
+             _mesa_sha1_update(&nir_hash_ctx, &y_flip_mask, sizeof(y_flip_mask));
+@@ -1089,6 +1098,16 @@
+       D3D12_SHADER_BYTECODE *slot =
+          dzn_pipeline_get_gfx_shader_slot(out, stage);
+ 
++      if (stage == MESA_SHADER_TESS_CTRL || stage == MESA_SHADER_TESS_EVAL) {
++         /* gl_PatchVerticesIn is the patch size of the pipeline in the control shader and the number of
++          * control points that the control shader outputs in the evaluation shader.
++          */
++         nir_shader *tcs_nir = pipeline->templates.shaders[MESA_SHADER_TESS_CTRL].nir;
++         unsigned vertices = stage == MESA_SHADER_TESS_EVAL && tcs_nir ?
++                             tcs_nir->info.tess.tcs_vertices_out : patch_control_points;
++         NIR_PASS_V(pipeline->templates.shaders[stage].nir, nir_lower_patch_vertices, vertices, NULL);
++      }
++
+       ret = dzn_pipeline_compile_shader(device, pipeline->templates.shaders[stage].nir, prev_stage_output_clip_size, slot);
+       if (ret != VK_SUCCESS)
+          return ret;

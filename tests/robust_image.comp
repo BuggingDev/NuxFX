@@ -1,0 +1,18 @@
+#version 450
+// 4x4 R32_UINT storage image, every texel 7. Loads and stores outside it are out of bounds.
+layout(local_size_x = 1) in;
+layout(set = 0, binding = 0, r32ui) uniform uimage2D img;
+layout(set = 0, binding = 1) buffer O { uint o[]; };
+void main() {
+    o[0] = imageLoad(img, ivec2(1, 1)).x;
+    o[1] = imageLoad(img, ivec2(10, 10)).x;
+    o[2] = imageLoad(img, ivec2(-1, 0)).x;
+    imageStore(img, ivec2(10, 10), uvec4(99u));
+    imageStore(img, ivec2(0, 0), uvec4(5u));
+    o[3] = imageLoad(img, ivec2(0, 0)).x;
+    uint sum = 0u;
+    for (int y = 0; y < 4; y++)
+        for (int x = 0; x < 4; x++)
+            sum += imageLoad(img, ivec2(x, y)).x;
+    o[4] = sum;
+}

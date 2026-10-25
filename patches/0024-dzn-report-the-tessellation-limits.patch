@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: NuxFX contributors
+Date: Sun, 25 Oct 2026 04:10:00 +0300
+Subject: [PATCH] dzn: report the tessellation limits
+
+Patch 15 turned tessellationShader on, because DXVK derives Direct3D 11 feature level 11_0 from it,
+but every tessellation limit stayed at the 0 that dzn reports while the feature is off. Those values
+are below what the Vulkan specification requires of an implementation that has the feature, and
+DXVK uses one of them: it clamps every tessellation factor of a D3D11 hull shader to
+min(maxTessellationGenerationLevel, 64), which was 0.
+
+Report the limits that the specification requires (64, 32, 124, 124, 120, 4096, 124, 124). Direct3D 12
+hull and domain shaders support at least that much (tessellation factors up to 64, patches of up to
+32 control points).
+---
+ src/microsoft/vulkan/dzn_device.c | 16 ++++++++--------
+ 1 file changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/src/microsoft/vulkan/dzn_device.c b/src/microsoft/vulkan/dzn_device.c
+index 3654547..56d6221 100644
+--- a/src/microsoft/vulkan/dzn_device.c
++++ b/src/microsoft/vulkan/dzn_device.c
+@@ -982,14 +982,14 @@
+       .maxVertexInputAttributeOffset = D3D12_REQ_MULTI_ELEMENT_STRUCTURE_SIZE_IN_BYTES - 1,
+       .maxVertexInputBindingStride = D3D12_REQ_MULTI_ELEMENT_STRUCTURE_SIZE_IN_BYTES,
+       .maxVertexOutputComponents = D3D12_VS_OUTPUT_REGISTER_COUNT * D3D12_VS_OUTPUT_REGISTER_COMPONENTS,
+-      .maxTessellationGenerationLevel = 0,
+-      .maxTessellationPatchSize = 0,
+-      .maxTessellationControlPerVertexInputComponents = 0,
+-      .maxTessellationControlPerVertexOutputComponents = 0,
+-      .maxTessellationControlPerPatchOutputComponents = 0,
+-      .maxTessellationControlTotalOutputComponents = 0,
+-      .maxTessellationEvaluationInputComponents = 0,
+-      .maxTessellationEvaluationOutputComponents = 0,
++      .maxTessellationGenerationLevel = 64,
++      .maxTessellationPatchSize = 32,
++      .maxTessellationControlPerVertexInputComponents = 124,
++      .maxTessellationControlPerVertexOutputComponents = 124,
++      .maxTessellationControlPerPatchOutputComponents = 120,
++      .maxTessellationControlTotalOutputComponents = 4096,
++      .maxTessellationEvaluationInputComponents = 124,
++      .maxTessellationEvaluationOutputComponents = 124,
+       .maxGeometryShaderInvocations = D3D12_GS_MAX_INSTANCE_COUNT,
+       .maxGeometryInputComponents = D3D12_GS_INPUT_REGISTER_COUNT * D3D12_GS_INPUT_REGISTER_COMPONENTS,
+       .maxGeometryOutputComponents = D3D12_GS_OUTPUT_REGISTER_COUNT * D3D12_GS_OUTPUT_REGISTER_COMPONENTS,

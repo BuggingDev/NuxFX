@@ -1,0 +1,12 @@
+#version 450
+// A null uniform texel buffer (binding 0) and a null storage texel buffer (binding 2): nullDescriptor.
+layout(local_size_x = 1) in;
+layout(set = 0, binding = 0) uniform usamplerBuffer tb;
+layout(set = 0, binding = 1) buffer O { uint o[]; };
+layout(set = 0, binding = 2, r32ui) uniform uimageBuffer sb;
+void main() {
+    o[0] = texelFetch(tb, 0).x;
+    o[1] = imageLoad(sb, 0).x;
+    imageStore(sb, 0, uvec4(1u));
+    o[2] = 1u;
+}

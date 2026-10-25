@@ -1,0 +1,13 @@
+#version 450
+// Storage buffer whose descriptor range (64 bytes) is smaller than the buffer (1024 bytes).
+layout(local_size_x = 1) in;
+layout(set = 0, binding = 0) buffer A { uint a[]; };
+layout(set = 0, binding = 1) buffer O { uint o[]; };
+void main() {
+    o[0] = a[0];
+    o[1] = a[15];
+    o[2] = a[16];
+    o[3] = a[40];
+    a[16] = 0xDEADBEEFu;
+    a[40] = 0xDEADBEEFu;
+}

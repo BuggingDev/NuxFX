@@ -1,0 +1,12 @@
+#version 450
+// Uniform buffer whose descriptor range (64 bytes) is smaller than the buffer (1024 bytes).
+layout(local_size_x = 1) in;
+layout(set = 0, binding = 0) uniform U { uvec4 v[64]; };
+layout(set = 0, binding = 1) buffer O { uint o[]; };
+void main() {
+    o[0] = v[0].x;
+    o[1] = v[3].w;
+    o[2] = v[4].x;
+    o[3] = v[16].x;
+    o[4] = v[40].x;
+}

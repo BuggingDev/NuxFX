@@ -1,0 +1,13 @@
+#version 450
+#extension GL_EXT_samplerless_texture_functions : require
+// A null storage image (binding 0) and a null sampled image (binding 2): nullDescriptor.
+layout(local_size_x = 1) in;
+layout(set = 0, binding = 0, r32ui) uniform uimage2D img;
+layout(set = 0, binding = 1) buffer O { uint o[]; };
+layout(set = 0, binding = 2) uniform utexture2D tex;
+void main() {
+    o[0] = imageLoad(img, ivec2(0, 0)).x;
+    o[1] = texelFetch(tex, ivec2(0, 0), 0).x;
+    imageStore(img, ivec2(0, 0), uvec4(1u));
+    o[2] = 1u;
+}
