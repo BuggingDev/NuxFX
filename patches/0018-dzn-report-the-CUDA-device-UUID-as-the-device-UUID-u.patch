@@ -1,9 +1,9 @@
 From 868ac6b2f7ff165ddb4c57ecca8d1bf8bea5c706 Mon Sep 17 00:00:00 2001
 From: aegnux-contributor <contributor@example.invalid>
 Date: Sun, 18 Oct 2026 15:09:09 +0300
-Subject: [PATCH 18/18] dzn: report the CUDA device UUID as the device UUID under WSL
+Subject: [PATCH 18/18] dzn: report the CUDA device UUID as the device UUID on the D3D12 route
 
-Under WSL, CUDA and Direct3D 12 drive the same GPU. Applications, and Wine's
+CUDA and Direct3D 12 drive the same GPU on this route. Applications, and Wine's
 nvcuda (whose cuDeviceGetLuid looks the GPU up by Vulkan device UUID), match
 CUDA devices to Vulkan and DXGI devices by UUID. NVIDIA's own drivers report
 the CUDA UUID as the Vulkan device UUID; dzn reported a hash of the PCI IDs,
@@ -11,7 +11,7 @@ so the lookup failed ("Failed to retrieve LUID for device 0" in nvcuda).
 
 For NVIDIA adapters, load libcuda.so.1 and take the UUID of the CUDA device
 whose LUID equals the adapter LUID or, failing that, of the only CUDA device
-with the adapter's name (WSL's libcuda reports the host LUID, which differs
+with the adapter's name (libcuda reports the host LUID, which differs
 from the LUID D3D12 reports inside the VM). Otherwise the hashed UUID stays.
 DZN_DEBUG=nocudauuid disables the lookup.
 ---
@@ -47,10 +47,10 @@ index 788b714..85ba27c 100644
  }
  
 +#ifndef _WIN32
-+/* Under WSL, CUDA and D3D12 use the same GPU. Applications, and Wine's nvcuda,
-+ * match CUDA devices to Vulkan and DXGI devices by UUID, so take the UUID of
-+ * the CUDA device behind this adapter: the one with the adapter's LUID, or
-+ * else the only one with the adapter's name (WSL's libcuda reports the host
++/* CUDA and D3D12 use the same GPU on the D3D12 route. Applications, and Wine's
++ * nvcuda, match CUDA devices to Vulkan and DXGI devices by UUID, so take the
++ * UUID of the CUDA device behind this adapter: the one with the adapter's
++ * LUID, or else the only one with the adapter's name (libcuda reports the host
 + * LUID, not the one D3D12 sees in the VM). Returns false if there is none.
 + */
 +static bool

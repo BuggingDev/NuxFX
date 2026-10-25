@@ -14,6 +14,12 @@
 # "Show Welcome Screen" = 00 (Adobe After Effects <version> Prefs.txt)
 #   The HTML Home screen renders as an empty panel that covers the workspace.
 #   AEGNUX_HIDE_HOME_SCREEN=0 leaves the setting alone.
+# MyriadPro-Regular.otf in the prefix's Fonts folder, from After Effects' own pdfl/Fonts
+#   (below): the default font of new text layers. AEGNUX_DEFAULT_FONT=0 leaves the prefix alone.
+# dvaaudiodevice.ForceNoDevices = true (Debug Database.txt), only when the audio plan is "nodevice" (an RDP
+#   sink (the sound server of the Direct3D 12 route) and no pacat to play the silent stream, or AEGNUX_AUDIO_DEVICES=0; see
+#   aegnux_audio_plan in common.sh): After Effects is told there is no audio device, so it opens no stream
+#   that could hang, and plays no sound. Set back to false whenever the plan is another one.
 set -u
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$HERE/common.sh"
@@ -37,6 +43,21 @@ if [ -f "$WINEPREFIX/user.reg" ] && ! grep -aq "^\"Graphics\"=\"$DRIVER\"" "$WIN
     echo "Wine graphics driver set to $DRIVER"
 fi
 
+# Myriad Pro in the prefix's Fonts folder
+#   After Effects gives a new text layer the default font MyriadPro-Regular. When Wine does not have
+#   it, After Effects takes a font from its list by rules of its own, and with many fonts installed
+#   (the Noto families that most desktops have) that was NotoSansSignWriting, which has no Latin
+#   letters: every new text layer, 2D or 3D, looked empty. After Effects ships Myriad Pro in
+#   pdfl/Fonts; copying that file into the prefix makes it the default again. It is Adobe's own file
+#   from your installation, copied inside your own prefix. AEGNUX_DEFAULT_FONT=0 leaves the prefix alone.
+FONT_SRC="$AE_DIR/pdfl/Fonts/MyriadPro-Regular.otf"
+FONT_DST="$WINEPREFIX/drive_c/windows/Fonts"
+if [ "${AEGNUX_DEFAULT_FONT:-1}" != 0 ] && [ -f "$FONT_SRC" ] && [ -d "$WINEPREFIX/drive_c/windows" ] \
+   && [ ! -f "$FONT_DST/MyriadPro-Regular.otf" ]; then
+    mkdir -p "$FONT_DST" && cp "$FONT_SRC" "$FONT_DST/MyriadPro-Regular.otf" \
+        && echo "Myriad Pro copied into the Wine fonts folder (After Effects' default text font)"
+fi
+
 # set_db_pref FILE KEY VALUE DEFAULT: sets the value column and keeps the line ending.
 set_db_pref() {
     local file=$1 key=$2 value=$3 default=$4 pat
@@ -52,21 +73,9 @@ set_db_pref() {
     fi
 }
 
-# set_pref FILE SECTION KEY VALUE: sets KEY = VALUE inside ["SECTION"] of an AE preferences
-# file, adding the key (or the section) when it is missing. AE's files end lines with CRLF.
-set_pref() {
-    local file=$1 section=$2 key=$3 value=$4 tmp
-    tmp=$(mktemp) || return 1
-    tr -d '\r' < "$file" | awk -v sec="[\"$section\"]" -v key="$key" -v val="$value" '
-        function out() { print "\t\"" key "\" = " val }
-        $0 == sec { insec = 1; seen = 1; print; next }
-        /^\[/ { if (insec && !done) { out(); done = 1 } insec = 0; print; next }
-        insec && index($0, "\t\"" key "\" = ") == 1 { out(); done = 1; next }
-        { print }
-        END { if (insec && !done) out(); if (!seen) { print ""; print sec; out() } }
-    ' | sed 's/$/\r/' > "$tmp" && cat "$tmp" > "$file"
-    rm -f "$tmp"
-}
+# set_pref FILE SECTION KEY VALUE: sets KEY = VALUE inside ["SECTION"] of an AE preferences file
+# (aegnux_set_pref in common.sh).
+set_pref() { aegnux_set_pref "$@"; }
 
 ROAMING=$(aegnux_ae_roaming)
 VERSION=$(aegnux_ae_version)
@@ -76,10 +85,15 @@ if [ -n "$VERSION" ] && ! printf '%s\n' "$DIRS" | grep -qxF "$ROAMING/$VERSION";
     DIRS=$(printf '%s\n%s\n' "$DIRS" "$ROAMING/$VERSION")
 fi
 
+if [ "$(aegnux_audio_plan)" = nodevice ]; then NO_DEVICES=true; else NO_DEVICES=false; fi
+
 printf '%s\n' "$DIRS" | while IFS= read -r dir; do
     [ -n "$dir" ] || continue
     if [ "${AEGNUX_DIRECTX_DISPLAY:-0}" != 1 ]; then
         set_db_pref "$dir/Debug Database.txt" DS.DisableDirectXDisplay true false
+    fi
+    if [ "$NO_DEVICES" = true ] || grep -q "^dvaaudiodevice\.ForceNoDevices$TAB" "$dir/Debug Database.txt" 2> /dev/null; then
+        set_db_pref "$dir/Debug Database.txt" dvaaudiodevice.ForceNoDevices "$NO_DEVICES" false
     fi
     # AE writes its preferences file when it quits normally. On a first start there is none,
     # the Home screen opens as an empty panel over the whole workspace, and AE looks hung.

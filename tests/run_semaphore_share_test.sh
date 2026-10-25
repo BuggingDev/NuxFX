@@ -6,7 +6,7 @@
 # queue waits must cross, an imported semaphore must be exportable again, and destroying the
 # semaphores must not crash. It runs natively, without Wine.
 #
-# Requires: cc, the Vulkan headers and loader (libvulkan-dev) and dzn under WSL (or any Vulkan driver
+# Requires: cc, the Vulkan headers and loader (libvulkan-dev) and dzn (or any Vulkan driver
 # with external semaphore fd support: the test is generic and skips when the device has none).
 set -u
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

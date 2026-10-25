@@ -18,7 +18,7 @@ count-variant dynamic states, and implement the two entry points on top of
 dzn_CmdSetViewport and dzn_CmdSetScissor. Draws use the command-provided count
 for these pipelines and keep the static count otherwise.
 
-Verified under WSL2 Ubuntu 24.04 with Mesa 25.2.8 dzn and DXVK 3.0.1: a
+Verified on Ubuntu 24.04 (Direct3D 12 route) with Mesa 25.2.8 dzn and DXVK 3.0.1: a
 DXVK-equivalent present replica that previously read back black now produces
 the expected pixels, and D3D11 swapchain test windows show their backbuffer
 color (red and green) instead of black.

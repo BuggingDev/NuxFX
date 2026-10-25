@@ -26,8 +26,8 @@ WORK=$(mktemp -d) || exit 1
 x86_64-w64-mingw32-gcc -O1 -o "$WORK/gl_window_test.exe" "$HERE/gl_window_test.c" -lopengl32 -lgdi32 -luser32 || exit 1
 gcc -O1 -o "$WORK/xcap" "$S/tools/xcap.c" -lX11 || exit 1
 
-# All WSL2 distributions share one network namespace, so the abstract X sockets of other
-# distributions' servers count as taken too (/proc/net/unix lists them).
+# Abstract X sockets of servers that run in another mount namespace but share this network
+# namespace (containers, other distributions) count as taken too (/proc/net/unix lists them).
 N=99
 while [ -e "/tmp/.X$N-lock" ] || grep -q "@/tmp/.X11-unix/X$N\$" /proc/net/unix 2> /dev/null; do N=$((N - 1)); done
 Xvfb ":$N" -screen 0 1920x1080x24 -nolisten tcp > /dev/null 2>&1 &

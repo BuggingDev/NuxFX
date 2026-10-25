@@ -2,4 +2,3 @@
 *.py text eol=lf
 *.c text eol=lf
 *.patch text eol=lf
-*.cmd text eol=crlf

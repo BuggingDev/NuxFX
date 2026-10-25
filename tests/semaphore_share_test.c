@@ -2,7 +2,7 @@
 // Copyright (C) 2026 NuxFX contributors
 // Regression check for patch 21: a timeline semaphore that one VkDevice exports as an opaque fd
 // can be imported by another VkDevice and carries CPU signals, GPU signals and queue waits across.
-// WSL's Direct3D 12 cannot open a shared fence, so dzn keeps the value in a memfd page.
+// The Direct3D 12 layer under dzn cannot open a shared fence, so dzn keeps the value in a memfd page.
 // Build and run with tests/run_semaphore_share_test.sh. Exit codes: 0 pass, 1 fail, 77 skip.
 #include <vulkan/vulkan.h>
 #include <pthread.h>

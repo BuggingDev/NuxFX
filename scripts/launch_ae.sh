@@ -7,7 +7,10 @@
 #   launch_ae.sh [SECONDS]   stop AE after SECONDS (default 0: no limit)
 #
 # If After Effects is already running in this prefix, nothing is started. AEGNUX_RESTART=1
-# stops the running copy first; AE is then closed without saving.
+# stops the running copy first; AE is then closed without saving. On the sound server of the Direct3D
+# 12 route a silent stream keeps the sound output awake while After Effects runs (scripts/sound_keepalive.sh),
+# otherwise RAM preview breaks; AEGNUX_NULL_AUDIO=1 gives After Effects a silent audio output of its
+# own instead (scripts/null_audio.sh).
 # Logs go to $AEGNUX_LOG_DIR/ae_<timestamp>/ (out.log, err.log, rc). The directory
 # name is also written to $AEGNUX_LOG_DIR/LATEST.
 set -u
@@ -39,6 +42,13 @@ if [ "$(aegnux_wine_driver)" = wayland ]; then
     fi
 fi
 "$HERE/ae_prefs.sh"
+# RAM preview breaks on a sound server with an RDP sink unless something keeps its output awake (see
+# common.sh, aegnux_audio_plan, and doctor.sh, Audio). This script starts that and stops it again at the end,
+# also when it is interrupted.
+trap 'aegnux_audio_down' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
+aegnux_audio_up
 aegnux_env
 if [ "$(aegnux_vulkan_mode)" = dzn ] && [ ! -f "$VK_ICD_FILENAMES" ]; then
     echo "dzn ICD not found: $VK_ICD_FILENAMES" >&2

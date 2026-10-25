@@ -11,9 +11,12 @@ VK_KHR_pipeline_library, VK_KHR_load_store_op_none, VK_EXT_robustness2 and the
 external memory, semaphore and fence capabilities. KHR_external_memory_win32 and
 KHR_external_semaphore_win32 are turned off for _WIN32 builds.
 
-NOT FULLY IMPLEMENTED: inlineUniformBlock (no inline uniform block descriptor
-updates) and nullDescriptor (no null descriptor handling). DXVK 3.x refuses to
-create an adapter without them, so they are advertised. See docs/known-issues.md.
+NOT IMPLEMENTED: inlineUniformBlock (no inline uniform block descriptor
+updates). DXVK 3.x refuses to create an adapter without it, so it is advertised.
+DXVK uses inline uniform blocks only together with VK_EXT_descriptor_buffer, which
+dzn does not expose, and vkd3d-proton switches the feature off. nullDescriptor,
+robustBufferAccess2 and robustImageAccess2 work (tests/run_descriptor_features_test.sh
+and tests/run_robustness_test.sh). See docs/known-issues.md.
 ---
  src/microsoft/vulkan/dzn_device.c | 34 ++++++++++++++++++++++---------
  1 file changed, 24 insertions(+), 10 deletions(-)

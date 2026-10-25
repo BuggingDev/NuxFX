@@ -7,7 +7,7 @@
 # the buffer zero.
 #
 # Requires: cc, Vulkan headers and loader (libvulkan-dev, vulkan-tools for
-# vulkaninfo is not needed), glslangValidator (glslang-tools), and dzn under WSL.
+# vulkaninfo is not needed), glslangValidator (glslang-tools), and dzn.
 set -u
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$HERE/../scripts/common.sh"

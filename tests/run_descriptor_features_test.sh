@@ -9,7 +9,7 @@
 # is not implemented in dzn (the descriptor pool refuses the allocation, see known-issues.md),
 # so a failure there is a known limitation, not a test failure.
 #
-# Requires: cc, the Vulkan headers and loader (libvulkan-dev), glslangValidator and dzn under WSL.
+# Requires: cc, the Vulkan headers and loader (libvulkan-dev), glslangValidator and dzn.
 set -u
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$HERE/../scripts/common.sh"

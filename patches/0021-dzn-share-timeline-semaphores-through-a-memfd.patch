@@ -3,7 +3,7 @@ From: NuxFX contributors
 Date: Sat, 24 Oct 2026 21:50:00 +0300
 Subject: [PATCH] dzn: share timeline semaphores between devices through a memfd
 
-WSL's Direct3D 12 creates a shared handle for a fence but cannot open it:
+The Direct3D 12 layer under dzn creates a shared handle for a fence but cannot open it:
 ID3D12Device::OpenSharedHandle(IID_ID3D12Fence) fails with E_INVALIDARG for
 every combination of flags, devices and duplicated handles (shared heaps and
 shared committed resources open fine). vkImportSemaphoreFdKHR, which Wine's
@@ -117,7 +117,7 @@ index 48dff7b..3dcf9ab 100644
 +#include <unistd.h>
  #include <libsync.h>
 +
-+/* WSL's Direct3D 12 creates a shared handle for a fence but cannot open one
++/* The Direct3D 12 layer under dzn creates a shared handle for a fence but cannot open one
 + * (ID3D12Device::OpenSharedHandle fails with E_INVALIDARG), so a fence cannot move an
 + * opaque fd from one VkDevice to another. A timeline semaphore that is exported or imported
 + * therefore also keeps its highest signalled value in one page of a memfd. The fd is what the

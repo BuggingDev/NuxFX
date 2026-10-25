@@ -1,7 +1,7 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 NuxFX contributors
-# Build Mesa 25.2.8's EGL library and its Direct3D 12 OpenGL driver (WSL2) and install them
+# Build Mesa 25.2.8's EGL library and its Direct3D 12 OpenGL driver (Direct3D 12 route) and install them
 # in their own prefix. aegnux_env puts that prefix first in LD_LIBRARY_PATH, so Wine's
 # OpenGL (After Effects' Composition panel) runs on the same Mesa version on every
 # distribution, whatever Mesa the distribution ships.
@@ -33,8 +33,8 @@ if [ -n "$MISSING" ]; then
     echo "  $(aegnux_mesa_dev_hint)" >&2
     exit 1
 fi
-if ! is_wsl; then
-    echo "note: the Direct3D 12 OpenGL driver only works under WSL; native Linux hosts use their own OpenGL driver." >&2
+if ! is_d3d12_host; then
+    echo "note: the Direct3D 12 OpenGL driver needs Direct3D 12 (/dev/dxg); hosts with a native GPU driver use their own OpenGL driver." >&2
 fi
 
 GL_BUILD="$MESA_SRC/build-gl"

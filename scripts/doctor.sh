@@ -27,11 +27,10 @@ echo "Host"
 if [ -r /etc/os-release ]; then ok "distribution: $(. /etc/os-release; echo "${PRETTY_NAME:-unknown}")"; fi
 ok "kernel: $(uname -r)"
 MODE=$(aegnux_vulkan_mode)
-if is_wsl; then
-    ok "WSL2 (Vulkan through dzn, OpenGL through Mesa's D3D12 driver)"
-    if [ -e /dev/dxg ]; then ok "/dev/dxg present"; else fail "/dev/dxg missing: Direct3D 12 is not reachable (update WSL and the Windows GPU driver)"; fi
+if is_d3d12_host; then
+    ok "Direct3D 12 route (/dev/dxg present): Vulkan through dzn, OpenGL through Mesa's D3D12 driver"
 else
-    ok "native Linux (the host's own Vulkan and OpenGL drivers are used; dzn is not needed)"
+    ok "host-driver route: the host's own Vulkan and OpenGL drivers are used; dzn is not needed"
 fi
 ok "Vulkan driver mode: $MODE"
 if [ -e /dev/ntsync ]; then ok "/dev/ntsync present"; else warn "/dev/ntsync missing: Wine's NTsync is not used on this kernel"; fi
@@ -91,6 +90,17 @@ if [ -f "$AE_DIR/AfterFX.exe" ]; then
 else
     fail "AfterFX.exe not found in $AE_DIR (set AE_DIR)"
 fi
+# After Effects' default text font is Myriad Pro. Without it in the prefix, After Effects takes a font
+# of its own choice, which can be one without Latin letters when many fonts (Noto) are installed.
+if [ -f "$AE_DIR/pdfl/Fonts/MyriadPro-Regular.otf" ]; then
+    if [ -f "$WINEPREFIX/drive_c/windows/Fonts/MyriadPro-Regular.otf" ]; then
+        ok "Myriad Pro (After Effects' default text font) is in the prefix"
+    elif [ "${AEGNUX_DEFAULT_FONT:-1}" = 0 ]; then
+        warn "AEGNUX_DEFAULT_FONT=0: new text layers may start with a font that has no Latin letters (invisible text)"
+    else
+        warn "Myriad Pro is not in the prefix yet: scripts/launch_ae.sh (ae_prefs.sh) copies it from $AE_DIR/pdfl/Fonts before the next start"
+    fi
+fi
 
 echo "Vulkan"
 if [ "$MODE" = dzn ]; then
@@ -117,8 +127,8 @@ if [ "$MODE" = dzn ]; then
     else
         fail "dzn ICD missing: $ICD (run scripts/build_dzn.sh, or set DZN_PREFIX)"
     fi
-    for l in /usr/lib/wsl/lib/libd3d12.so /usr/lib/wsl/lib/libdxcore.so; do
-        if [ -e "$l" ]; then ok "$l"; else fail "$l missing (WSL Direct3D 12 runtime)"; fi
+    for l in "$AEGNUX_D3D12_LIBDIR/libd3d12.so" "$AEGNUX_D3D12_LIBDIR/libdxcore.so"; do
+        if [ -e "$l" ]; then ok "$l"; else fail "$l missing (Direct3D 12 runtime of the GPU driver)"; fi
     done
 elif have vulkaninfo; then
     DEVS=$(vulkaninfo --summary 2>/dev/null | sed -n 's/^[[:space:]]*deviceName[[:space:]]*=[[:space:]]*//p')
@@ -146,13 +156,52 @@ else
             libxkbcommon.so.0|libxkbregistry.so.0) fail "$s missing: Wine's X11 driver cannot read the keyboard layout" ;;
             libfreetype.so.6) fail "$s missing: Wine cannot draw text" ;;
             libEGL.so.1|libGL.so.1) fail "$s missing: Wine has no OpenGL (the Composition panel and Advanced 3D need it)" ;;
+            libpulse.so.0) warn "$s missing: Wine's PulseAudio/PipeWire driver cannot load, so After Effects plays no sound" ;;
             *) warn "$s missing: a smaller Wine feature is off (cursors, multi-monitor, font lookup, TLS or gamma)" ;;
         esac
     done
     echo "          $(aegnux_pkg_hint $MISSING_LIBS)"
 fi
 
-if is_wsl; then
+echo "Audio"
+# Wine's audio drivers: winepulse.so (libpulse.so.0, talks to PulseAudio or PipeWire) and winealsa.so
+# (libasound.so.2). RAM preview works without any audio device, and with a sound server that works. The RDP
+# sink of the Direct3D 12 route's sound server (/mnt/wslg/PulseServer) suspends after 5 idle seconds and does not resume a
+# stream that was created corked, which is After Effects' audio stream: its audio thread hangs, a stopped
+# preview takes a second longer, and the next preview does not start (docs/known-issues.md). A silent stream
+# played by scripts/sound_keepalive.sh keeps that sink awake; launch_ae.sh starts it.
+PLAN=$(aegnux_audio_plan)
+case "$PLAN" in
+    keepalive)
+        ok "audio: the sound output is an RDP sink (the Direct3D 12 route's sound server); launch_ae.sh plays a silent stream (scripts/sound_keepalive.sh) so it stays awake, and RAM preview and sound work"
+        ;;
+    nodevice)
+        if [ "${AEGNUX_AUDIO_DEVICES:-1}" = 0 ]; then
+            ok "audio: AEGNUX_AUDIO_DEVICES=0, After Effects is told there is no audio device (no sound; RAM preview works)"
+        else
+            warn "audio: the sound output is an RDP sink (the Direct3D 12 route's sound server) and neither pacat nor python3 is installed to play the silent stream that keeps it awake: After Effects is told there is no audio device (no sound; RAM preview works). $(aegnux_pkg_hint python3 pulseaudio-utils) gives it sound"
+        fi
+        ;;
+    null)
+        if "$HERE/null_audio.sh" --check > /dev/null 2>&1; then
+            ok "audio: the silent output of scripts/null_audio.sh (a PulseAudio server of its own)"
+        else
+            warn "AEGNUX_NULL_AUDIO=1 but the silent output is not running: launch_ae.sh starts it, or run scripts/null_audio.sh ($(aegnux_pkg_hint pulseaudio pulseaudio-utils))"
+        fi
+        ;;
+    *)
+        if SND=$(aegnux_sound_found); then
+            ok "audio: $SND"
+        else
+            ok "audio: no sound server and no ALSA card; After Effects plays no sound, RAM preview works without it"
+        fi
+        if [ "${AEGNUX_SOUND_KEEPALIVE:-auto}" = 0 ] && [ "${PULSE_SERVER:-}" = "unix:/mnt/wslg/PulseServer" ] && [ -S /mnt/wslg/PulseServer ]; then
+            warn "AEGNUX_SOUND_KEEPALIVE=0 with the sound server of the Direct3D 12 route: RAM preview breaks after the first stop (docs/known-issues.md)"
+        fi
+        ;;
+esac
+
+if is_d3d12_host; then
     echo "OpenGL"
     if [ "${AEGNUX_SYSTEM_GL:-0}" = 1 ]; then
         ok "AEGNUX_SYSTEM_GL=1: the distribution's OpenGL is used"
@@ -197,7 +246,7 @@ done
 
 echo "CUDA and the Composition panel"
 CUDA_LIB=""
-for l in /usr/lib/wsl/lib/libcuda.so.1 $(ldconfig -p 2>/dev/null | sed -n 's/.*libcuda\.so\.1 .*=> //p'); do
+for l in "$AEGNUX_D3D12_LIBDIR/libcuda.so.1" $(ldconfig -p 2>/dev/null | sed -n 's/.*libcuda\.so\.1 .*=> //p'); do
     if [ -e "$l" ]; then CUDA_LIB=$l; break; fi
 done
 if [ "${AEGNUX_DISABLE_CUDA:-0}" = 1 ]; then
@@ -229,9 +278,7 @@ if [ -n "$MISSING" ]; then warn "missing:$MISSING ($(aegnux_pkg_hint $MISSING))"
 if have Xvfb; then
     ok "Xvfb (tests run on a private display)"
 else
-    NOTE=""
-    if [ "$(aegnux_family)" = zypper ] && is_wsl; then NOTE="; under WSL that package conflicts with patterns-wsl-tmpfiles, see docs/known-issues.md"; fi
-    warn "Xvfb not installed: AE tests run on your desktop ($(aegnux_pkg_hint xvfb))$NOTE"
+    warn "Xvfb not installed: AE tests run on your desktop ($(aegnux_pkg_hint xvfb))"
 fi
 
 if [ "${1:-}" = --build ]; then
@@ -246,7 +293,7 @@ if [ "${1:-}" = --build ]; then
         ok "meson $(meson --version), ninja, cc, pkg-config, git, python3 and the Mesa libraries"
     fi
     if [ -f "$MESA_SRC/meson.build" ]; then ok "Mesa source: $MESA_SRC"; else warn "no Mesa source at $MESA_SRC: set MESA_TARBALL to mesa-25.2.8.tar.xz"; fi
-    if ! is_wsl; then warn "dzn only works under WSL; native hosts do not need build_dzn.sh"; fi
+    if ! is_d3d12_host; then warn "dzn needs Direct3D 12 (/dev/dxg); hosts with a native GPU driver do not need build_dzn.sh"; fi
 fi
 
 echo

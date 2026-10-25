@@ -22,8 +22,8 @@ if [ -n "$MISSING" ]; then
     echo "  $(aegnux_mesa_dev_hint)" >&2
     exit 1
 fi
-if ! is_wsl; then
-    echo "note: dzn needs Direct3D 12 and only works under WSL; native Linux hosts use their own Vulkan driver." >&2
+if ! is_d3d12_host; then
+    echo "note: dzn needs Direct3D 12 (/dev/dxg); hosts with a native GPU driver use their own Vulkan driver." >&2
 fi
 
 if [ ! -f "$MESA_SRC/meson.build" ]; then
@@ -49,6 +49,13 @@ fi
 # and the newest patch that reverses cleanly shows how far an existing tree got.
 APPLIED="$MESA_SRC/.aegnux-patches-applied"
 PATCHES=("$REPO"/patches/*.patch)
+# Patches whose text was reworded without changing the code (a commit message or a comment). A tree
+# that applied one of the earlier versions is accepted, and its record is updated to the new hash.
+# One line per earlier version: "<patch name> <sha256 of that version>".
+REWORDED="0015-dzn-advertise-features-and-extensions-required-by-DX.patch 2b177b3e95a5a8de91143c047c1afbd664652445a84f4f210937bceb4d14a977
+0017-dzn-implement-viewport-and-scissor-with-count.patch e8cf2c501f7fe877dbecfec8cc7b5f5d1927d7aa2766ddf3d075d313844cc330
+0018-dzn-report-the-CUDA-device-UUID-as-the-device-UUID-u.patch 93da27b51fe046f5abd6459a03c27986b6ccf909da97e459c18dec85659a4bd1
+0021-dzn-share-timeline-semaphores-through-a-memfd.patch 87be8eb25fa07f5445687420ce859a8b823b20ad1e901f2bbc2a6317b1b8b05e"
 if [ ! -s "$APPLIED" ]; then
     : > "$APPLIED"
     for ((i = ${#PATCHES[@]} - 1; i >= 0; i--)); do
@@ -65,8 +72,12 @@ for p in "${PATCHES[@]}"; do
     recorded=$(awk -v n="$name" '$2 == n { print $1; exit } $0 == n { print "-"; exit }' "$APPLIED")
     if [ -n "$recorded" ]; then
         if [ "$recorded" != "-" ] && [ "$recorded" != "$sum" ]; then
-            echo "$name changed after it was applied to $MESA_SRC: restore it, or use a fresh Mesa tree." >&2
-            exit 1
+            if printf '%s\n' "$REWORDED" | grep -qx "$name $recorded"; then
+                sed -i "s/^$recorded  $name\$/$sum  $name/" "$APPLIED"
+            else
+                echo "$name changed after it was applied to $MESA_SRC: restore it, or use a fresh Mesa tree." >&2
+                exit 1
+            fi
         fi
         continue
     fi

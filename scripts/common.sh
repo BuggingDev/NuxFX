@@ -9,7 +9,7 @@
 
 AEGNUX_CONFIG="${AEGNUX_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/aegnux/aegnux.conf}"
 # Keys read from the config file. Other lines are ignored; doctor.sh reports them.
-AEGNUX_CONFIG_KEYS="AEGNUX_HOME AEGNUX_LAYER_DIR AEGNUX_LOG_DIR AEGNUX_TEST_DIR AEGNUX_VULKAN AEGNUX_DISABLE_CUDA AEGNUX_DIRECTX_DISPLAY AEGNUX_GL_PREFIX AEGNUX_SYSTEM_GL AEGNUX_REP_MOVSB AEGNUX_HIDE_HOME_SCREEN AEGNUX_COACHMARKS AEGNUX_EXTRA_OVERRIDES AEGNUX_WINEDEBUG AEGNUX_APIVER_LAYER AEGNUX_WAYLAND WINE_BIN_DIR WINEPREFIX AE_DIR MESA_SRC MESA_BUILD DZN_PREFIX AE_VERSION"
+AEGNUX_CONFIG_KEYS="AEGNUX_HOME AEGNUX_LAYER_DIR AEGNUX_LOG_DIR AEGNUX_TEST_DIR AEGNUX_VULKAN AEGNUX_DISABLE_CUDA AEGNUX_DIRECTX_DISPLAY AEGNUX_GL_PREFIX AEGNUX_SYSTEM_GL AEGNUX_REP_MOVSB AEGNUX_HIDE_HOME_SCREEN AEGNUX_COACHMARKS AEGNUX_EXTRA_OVERRIDES AEGNUX_WINEDEBUG AEGNUX_APIVER_LAYER AEGNUX_WAYLAND AEGNUX_D3D12_LIBDIR AEGNUX_DEFAULT_FONT AEGNUX_NULL_AUDIO AEGNUX_SOUND_KEEPALIVE AEGNUX_AUDIO_DEVICES WINE_BIN_DIR WINEPREFIX AE_DIR MESA_SRC MESA_BUILD DZN_PREFIX AE_VERSION"
 if [ -f "$AEGNUX_CONFIG" ]; then
     while IFS= read -r _aegnux_line || [ -n "$_aegnux_line" ]; do
         _aegnux_line=${_aegnux_line%$'\r'}
@@ -26,6 +26,7 @@ if [ -f "$AEGNUX_CONFIG" ]; then
     unset _aegnux_line _aegnux_key _aegnux_value
 fi
 
+AEGNUX_SCRIPTS_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 AEGNUX_HOME="${AEGNUX_HOME:-$HOME/.local/share/aegnux}"
 WINE_BIN_DIR="${WINE_BIN_DIR:-$AEGNUX_HOME/runner/bin}"
 WINEPREFIX="${WINEPREFIX:-$AEGNUX_HOME/wineprefix}"
@@ -33,27 +34,35 @@ AE_DIR="${AE_DIR:-$AEGNUX_HOME/AE}"
 MESA_SRC="${MESA_SRC:-$HOME/src/mesa-25.2.8}"
 MESA_BUILD="${MESA_BUILD:-$MESA_SRC/build}"
 DZN_PREFIX="${DZN_PREFIX:-$AEGNUX_HOME/dzn}"
-# Mesa's EGL and Direct3D 12 OpenGL driver that build_gl.sh installs (WSL2).
+# Mesa's EGL and Direct3D 12 OpenGL driver that build_gl.sh installs (Direct3D 12 route).
 AEGNUX_GL_PREFIX="${AEGNUX_GL_PREFIX:-$AEGNUX_HOME/mesa-gl}"
 AEGNUX_LAYER_DIR="${AEGNUX_LAYER_DIR:-$AEGNUX_HOME/layer}"
 AEGNUX_LOG_DIR="${AEGNUX_LOG_DIR:-$AEGNUX_HOME/logs}"
 AEGNUX_TEST_DIR="${AEGNUX_TEST_DIR:-$AEGNUX_HOME/tests}"
-# Vulkan driver: auto (dzn under WSL, the host's own driver elsewhere), dzn or system.
+# Runtime folder of the silent PulseAudio server that scripts/null_audio.sh starts, and of the
+# pid files of scripts/sound_keepalive.sh.
+AEGNUX_AUDIO_RUN="${AEGNUX_AUDIO_RUN:-$AEGNUX_HOME/audio/run}"
+# Vulkan driver: auto (dzn on the Direct3D 12 route, the host's own driver elsewhere), dzn or system.
 AEGNUX_VULKAN="${AEGNUX_VULKAN:-auto}"
+# Where the GPU driver of the Direct3D 12 route installs its user-space libraries (libd3d12.so,
+# libdxcore.so and libcuda.so.1).
+AEGNUX_D3D12_LIBDIR="${AEGNUX_D3D12_LIBDIR:-/usr/lib/wsl/lib}"
 
 export AEGNUX_CONFIG AEGNUX_HOME WINE_BIN_DIR WINEPREFIX AE_DIR MESA_SRC MESA_BUILD
-export DZN_PREFIX AEGNUX_GL_PREFIX AEGNUX_LAYER_DIR AEGNUX_LOG_DIR AEGNUX_TEST_DIR AEGNUX_VULKAN
+export DZN_PREFIX AEGNUX_GL_PREFIX AEGNUX_LAYER_DIR AEGNUX_LOG_DIR AEGNUX_TEST_DIR AEGNUX_VULKAN AEGNUX_D3D12_LIBDIR AEGNUX_AUDIO_RUN
 
-# True under WSL2, where Direct3D 12 is reachable through /dev/dxg.
-is_wsl() {
-    grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null || [ -e /dev/dxg ]
+# True on the Direct3D 12 route: the GPU is reachable through Direct3D 12 (/dev/dxg), so Vulkan
+# comes from Mesa's dzn and OpenGL from Mesa's d3d12 driver. False on a host with a native GPU
+# driver (the host-driver route).
+is_d3d12_host() {
+    [ -e /dev/dxg ]
 }
 
 # Prints "dzn" or "system".
 aegnux_vulkan_mode() {
     case "$AEGNUX_VULKAN" in
         dzn|system) echo "$AEGNUX_VULKAN" ;;
-        *) if is_wsl; then echo dzn; else echo system; fi ;;
+        *) if is_d3d12_host; then echo dzn; else echo system; fi ;;
     esac
 }
 
@@ -121,12 +130,40 @@ aegnux_ae_pref_dirs() {
     done
 }
 
+# aegnux_set_pref FILE SECTION KEY VALUE: sets KEY = VALUE inside ["SECTION"] of an AE preferences
+# file (a string value is passed with its quotes, '"1"'), adding the key or the section when it is
+# missing. AE's files end lines with CRLF.
+aegnux_set_pref() {
+    local file=$1 section=$2 key=$3 value=$4 tmp
+    tmp=$(mktemp) || return 1
+    tr -d '\r' < "$file" | awk -v sec="[\"$section\"]" -v key="$key" -v val="$value" '
+        function out() { print "\t\"" key "\" = " val }
+        $0 == sec { insec = 1; seen = 1; print; next }
+        /^\[/ { if (insec && !done) { out(); done = 1 } insec = 0; print; next }
+        insec && index($0, "\t\"" key "\" = ") == 1 { out(); done = 1; next }
+        { print }
+        END { if (insec && !done) out(); if (!seen) { print ""; print sec; out() } }
+    ' | sed 's/$/\r/' > "$tmp" && cat "$tmp" > "$file"
+    rm -f "$tmp"
+}
+
+# aegnux_get_pref FILE SECTION KEY: prints the value of KEY in ["SECTION"] as it is written in the file (nothing
+# when it is not there).
+aegnux_get_pref() {
+    tr -d '\r' < "$1" | awk -v sec="[\"$2\"]" -v key="$3" '
+        $0 == sec { insec = 1; next }
+        /^\[/ { insec = 0 }
+        insec && index($0, "\t\"" key "\" = ") == 1 { sub(/^[^=]*= /, ""); print; exit }
+    '
+}
+
 # PIDs of this user's processes whose command line matches the pgrep pattern $1 and whose
 # environment has this prefix's WINEPREFIX. Other prefixes and other programs do not match.
 aegnux_prefix_pids() {
     local pid
     for pid in $(pgrep -u "$(id -u)" -f "$1" 2> /dev/null); do
-        if tr '\0' '\n' < "/proc/$pid/environ" 2> /dev/null | grep -qxF "WINEPREFIX=$WINEPREFIX"; then
+        # (2> first: the error of a process that is gone, or one that is not ours, comes from the < redirection)
+        if tr '\0' '\n' 2> /dev/null < "/proc/$pid/environ" | grep -qxF "WINEPREFIX=$WINEPREFIX"; then
             echo "$pid"
         fi
     done
@@ -185,39 +222,188 @@ EOF
             export VK_LOADER_LAYERS_ENABLE=VK_LAYER_AEGNUX_apiversion
         fi
     fi
-    # Under WSL, OpenGL must go through Mesa's D3D12 Gallium driver; without it the
-    # UI falls back to llvmpipe (CPU). Native hosts keep their own GL driver.
-    if is_wsl && [ -z "${GALLIUM_DRIVER:-}" ]; then export GALLIUM_DRIVER=d3d12; fi
+    # On the Direct3D 12 route OpenGL must go through Mesa's D3D12 Gallium driver; without it the
+    # UI falls back to llvmpipe (CPU). Hosts with a native driver keep their own GL driver.
+    if is_d3d12_host && [ -z "${GALLIUM_DRIVER:-}" ]; then export GALLIUM_DRIVER=d3d12; fi
     # Wine draws After Effects' Composition panel with OpenGL through EGL. The distribution's
     # Mesa is not used when build_gl.sh installed Mesa 25.2.8's EGL and d3d12 driver: with
     # Mesa 26 (Arch Linux, Fedora 44) the panel stayed empty, and the Mesa of every
     # distribution differs. The private libEGL.so.1 comes first in the library path.
     # AEGNUX_SYSTEM_GL=1 keeps the distribution's OpenGL.
-    if is_wsl && [ "${AEGNUX_SYSTEM_GL:-0}" != 1 ] && [ -f "$AEGNUX_GL_PREFIX/lib/libEGL.so.1" ]; then
+    if is_d3d12_host && [ "${AEGNUX_SYSTEM_GL:-0}" != 1 ] && [ -f "$AEGNUX_GL_PREFIX/lib/libEGL.so.1" ]; then
         case ":${LD_LIBRARY_PATH:-}:" in
             *":$AEGNUX_GL_PREFIX/lib:"*) ;;
             *) export LD_LIBRARY_PATH="$AEGNUX_GL_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ;;
         esac
     fi
-    # Wine turns every EGL device into a GPU. Besides the real one, Mesa lists WSLg's "vgem"
-    # render node, and when the user can open /dev/dri/card0 (the video group on Arch Linux) it
-    # starts that device too. Wine then reports a second NVIDIA adapter, "D3D12 (NVIDIA ...)",
-    # that After Effects' System Compatibility Report rejects (a dialog on every start that
-    # waits for a click). Naming the driver stops Mesa from building a screen for vgem, so the
-    # device is skipped; the display's own EGL path (software winsys) does not change.
-    if is_wsl && [ -z "${MESA_LOADER_DRIVER_OVERRIDE:-}" ]; then export MESA_LOADER_DRIVER_OVERRIDE=d3d12; fi
+    # Wine turns every EGL device into a GPU. Besides the real one, Mesa lists a software "vgem"
+    # render node (the display stack of this route has one), and when the user can open
+    # /dev/dri/card0 (the video group on Arch Linux) it starts that device too. Wine then reports
+    # a second NVIDIA adapter, "D3D12 (NVIDIA ...)", that After Effects' System Compatibility
+    # Report rejects (a dialog on every start that waits for a click). Naming the driver stops
+    # Mesa from building a screen for vgem, so the device is skipped; the display's own EGL path
+    # (software winsys) does not change.
+    if is_d3d12_host && [ -z "${MESA_LOADER_DRIVER_OVERRIDE:-}" ]; then export MESA_LOADER_DRIVER_OVERRIDE=d3d12; fi
     # After Effects shows every frame with glTexSubImage2D, and Mesa's d3d12 driver copies the
     # frame into its upload buffer one row (about 5 KB) at a time. From 4 KB up glibc's memcpy
     # uses "rep movsb", and on the shared-memory mappings of the Direct3D 12 route that
     # instruction runs at about 45 MB/s (vector loops: about 2 GB/s). RAM preview then showed
     # about 7 frames a second, a fifth of real time. Raising glibc's rep movsb threshold keeps
     # memcpy on the vector loops. AEGNUX_REP_MOVSB=1 keeps glibc's default.
-    if is_wsl && [ "${AEGNUX_REP_MOVSB:-0}" != 1 ]; then
+    if is_d3d12_host && [ "${AEGNUX_REP_MOVSB:-0}" != 1 ]; then
         case ":${GLIBC_TUNABLES:-}:" in
             *:glibc.cpu.x86_rep_movsb_threshold=*) ;;
             *) export GLIBC_TUNABLES="${GLIBC_TUNABLES:+$GLIBC_TUNABLES:}glibc.cpu.x86_rep_movsb_threshold=0x40000000" ;;
         esac
     fi
+    aegnux_audio_env
+}
+
+# Audio. RAM preview works with a sound server that works and with no audio device at all. The sound
+# server of the Direct3D 12 route's display stack (its output is an RDP sink) is neither: it suspends its output after
+# 5 idle seconds, and a stream that was created corked meanwhile (After Effects opens its stream when it
+# starts and uncorks it when a preview starts) is not resumed properly. The uncork is answered after
+# two seconds or never and the stream never asks for data, so After Effects' audio thread hangs, stopping a
+# preview takes a second longer, and the next preview does not start (docs/known-issues.md,
+# tests/run_pulse_resume_test.sh). aegnux_audio_plan says what is done about it:
+#   host       nothing: the machine's sound server as it is (or none, which works as well)
+#   keepalive  a silent stream keeps the RDP sink awake (scripts/sound_keepalive.sh; sound works)
+#   nodevice   After Effects is told there is no audio device (dvaaudiodevice.ForceNoDevices, set by
+#              ae_prefs.sh): an RDP sink and nothing to play the silent stream (neither pacat nor python3),
+#              or AEGNUX_AUDIO_DEVICES=0
+#   null       a silent PulseAudio server of its own (AEGNUX_NULL_AUDIO=1, scripts/null_audio.sh)
+# AEGNUX_SOUND_KEEPALIVE=auto (default) uses keepalive for an RDP sink only; 0 never, 1 always.
+#
+# A PULSE_SERVER that names a socket which is not there is dropped: it keeps libpulse, and so Wine's
+# audio driver, from looking at the default location (the Direct3D 12 route's display stack sets one even
+# when it has no audio).
+aegnux_audio_env() {
+    if [ "${AEGNUX_NULL_AUDIO:-0}" = 1 ]; then
+        export PULSE_SERVER="unix:$AEGNUX_AUDIO_RUN/native"
+        return 0
+    fi
+    case "${PULSE_SERVER:-}" in
+        unix:*) [ -S "${PULSE_SERVER#unix:}" ] || unset PULSE_SERVER ;;
+    esac
+    return 0
+}
+
+# True when an output of the sound server After Effects will use is an RDP sink (the sound server of
+# the Direct3D 12 route's display stack has one).
+aegnux_sound_sink_is_rdp() {
+    aegnux_audio_env
+    if command -v pactl > /dev/null 2>&1; then
+        timeout 5 pactl list short sinks 2> /dev/null | grep -q 'module-rdp-sink'
+        return $?
+    fi
+    [ "${PULSE_SERVER:-}" = "unix:/mnt/wslg/PulseServer" ]
+}
+
+# Prints host, keepalive, nodevice or null (see above).
+aegnux_audio_plan() {
+    if [ "${AEGNUX_NULL_AUDIO:-0}" = 1 ]; then echo null; return 0; fi
+    if [ "${AEGNUX_AUDIO_DEVICES:-1}" = 0 ]; then echo nodevice; return 0; fi
+    case "${AEGNUX_SOUND_KEEPALIVE:-auto}" in
+        0) echo host; return 0 ;;
+        1) ;;
+        *) aegnux_sound_sink_is_rdp || { echo host; return 0; } ;;
+    esac
+    # Wine without libpulse has no PulseAudio driver, so there is nothing to keep awake
+    aegnux_have_lib libpulse.so.0 || { echo host; return 0; }
+    if aegnux_can_play_silence; then echo keepalive; else echo nodevice; fi
+}
+
+# True when something can play the silent stream: pacat, or python3 with scripts/tools/silent_stream.py.
+aegnux_can_play_silence() {
+    # AEGNUX_SILENCE_PLAYER=python uses the python3 player even when pacat is installed (the tests use it)
+    [ "${AEGNUX_SILENCE_PLAYER:-auto}" != python ] && command -v pacat > /dev/null 2>&1 && return 0
+    command -v python3 > /dev/null 2>&1 && [ -f "$AEGNUX_SCRIPTS_DIR/tools/silent_stream.py" ]
+}
+
+# Starts what the audio plan needs and remembers it for aegnux_audio_down. The caller is the process
+# the silent stream lives for.
+aegnux_audio_up() {
+    local was
+    AEGNUX_AUDIO_STARTED=""
+    case "$(aegnux_audio_plan)" in
+        null)
+            was=1
+            "$AEGNUX_SCRIPTS_DIR/null_audio.sh" --check > /dev/null 2>&1 || was=0
+            if "$AEGNUX_SCRIPTS_DIR/null_audio.sh" > /dev/null; then
+                [ "$was" = 0 ] && AEGNUX_AUDIO_STARTED=null
+            else
+                echo "note: scripts/null_audio.sh could not start the silent audio output" >&2
+            fi
+            ;;
+        keepalive)
+            if "$AEGNUX_SCRIPTS_DIR/sound_keepalive.sh" --parent "$$" > /dev/null; then
+                AEGNUX_AUDIO_STARTED=keepalive
+            else
+                echo "note: scripts/sound_keepalive.sh could not start the silent stream; RAM preview may break (docs/known-issues.md)" >&2
+            fi
+            ;;
+    esac
+    return 0
+}
+aegnux_audio_down() {
+    case "${AEGNUX_AUDIO_STARTED:-}" in
+        null) "$AEGNUX_SCRIPTS_DIR/null_audio.sh" --stop > /dev/null 2>&1 ;;
+        keepalive) "$AEGNUX_SCRIPTS_DIR/sound_keepalive.sh" --release "$$" > /dev/null 2>&1 ;;
+    esac
+    AEGNUX_AUDIO_STARTED=""
+    return 0
+}
+
+# Prints what gives After Effects an audio output on this machine and returns 0, or returns 1
+# when there is none (After Effects then plays no sound; RAM preview works without).
+aegnux_sound_found() {
+    local sock
+    aegnux_audio_env
+    if [ "${AEGNUX_NULL_AUDIO:-0}" = 1 ]; then
+        if command -v pactl > /dev/null 2>&1 && timeout 5 pactl info > /dev/null 2>&1; then
+            echo "the silent output of scripts/null_audio.sh (a PulseAudio server of its own)"
+            return 0
+        fi
+        return 1
+    fi
+    if aegnux_have_lib libpulse.so.0; then
+        if command -v pactl > /dev/null 2>&1; then
+            # pactl speaks to PulseAudio and to PipeWire's PulseAudio server alike
+            if timeout 5 pactl info > /dev/null 2>&1; then echo "a PulseAudio or PipeWire server answers"; return 0; fi
+        else
+            case "${PULSE_SERVER:-}" in
+                unix:*) sock=${PULSE_SERVER#unix:} ;;
+                "") sock="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pulse/native" ;;
+                *) echo "PULSE_SERVER=$PULSE_SERVER (not checked)"; return 0 ;;
+            esac
+            if [ -S "$sock" ]; then echo "a PulseAudio or PipeWire socket exists: $sock"; return 0; fi
+        fi
+    fi
+    if grep -q '[0-9]' /proc/asound/cards 2> /dev/null && aegnux_have_lib libasound.so.2; then
+        echo "an ALSA sound card is present"
+        return 0
+    fi
+    return 1
+}
+
+# For the tests that start After Effects. AEGNUX_TEST_AUDIO chooses its audio output:
+#   auto (default)  what launch_ae.sh does (aegnux_audio_plan): the machine's sound server, with the silent
+#                   stream when it is an RDP sink
+#   host            the machine's sound server as it is, no silent stream (the sound server of the Direct3D
+#                   12 route breaks RAM preview then: tests/run_ae_ram_preview_cycles_test.sh fails)
+#   null            a silent PulseAudio server of its own (scripts/null_audio.sh, needs pulseaudio and pactl)
+#   none            no audio device (a PULSE_SERVER that refuses connections)
+# aegnux_test_audio_down stops what aegnux_test_audio_up started.
+aegnux_test_audio_up() {
+    case "${AEGNUX_TEST_AUDIO:-auto}" in
+        host) export AEGNUX_SOUND_KEEPALIVE=0; return 0 ;;
+        none) export PULSE_SERVER=tcp:127.0.0.1:9; return 0 ;;
+        null) export AEGNUX_NULL_AUDIO=1 ;;
+    esac
+    aegnux_audio_up
+}
+aegnux_test_audio_down() {
+    aegnux_audio_down
 }
 
 # Package manager family of this distribution: apt, dnf, pacman, zypper or other.
@@ -239,7 +425,9 @@ aegnux_family() {
 # is missing, it switches the feature off. Without libXcomposite.so.1 it cannot show OpenGL
 # child windows, so After Effects' Composition panel stays black although the frames render.
 # (The names were read from the runner: strings on winex11.so and the other unix libraries.)
-AEGNUX_WINE_SONAMES="libX11.so.6 libXext.so.6 libXi.so.6 libXrandr.so.2 libXrender.so.1 libXfixes.so.3 libXcursor.so.1 libXcomposite.so.1 libXinerama.so.1 libXxf86vm.so.1 libxkbcommon.so.0 libxkbregistry.so.0 libfreetype.so.6 libfontconfig.so.1 libgnutls.so.30 libEGL.so.1 libGL.so.1"
+# libpulse.so.0 is linked by winepulse.so, the audio driver for PulseAudio and PipeWire; without it
+# Wine has no audio driver and After Effects plays no sound.
+AEGNUX_WINE_SONAMES="libX11.so.6 libXext.so.6 libXi.so.6 libXrandr.so.2 libXrender.so.1 libXfixes.so.3 libXcursor.so.1 libXcomposite.so.1 libXinerama.so.1 libXxf86vm.so.1 libxkbcommon.so.0 libxkbregistry.so.0 libfreetype.so.6 libfontconfig.so.1 libgnutls.so.30 libEGL.so.1 libGL.so.1 libpulse.so.0"
 
 # Prints the sonames of AEGNUX_WINE_SONAMES that the dynamic linker does not know. ldconfig
 # lives in /sbin on Debian, which is not in an ordinary user's PATH.
@@ -250,6 +438,13 @@ aegnux_wine_libs_missing() {
     for s in $AEGNUX_WINE_SONAMES; do
         printf '%s\n' "$cache" | grep -q "^[[:space:]]*$s ([^)]*x86-64" || echo "$s"
     done
+}
+
+# True when the dynamic linker knows the 64-bit shared library $1 (soname).
+aegnux_have_lib() {
+    local ld
+    ld=$(command -v ldconfig 2> /dev/null || echo /sbin/ldconfig)
+    "$ld" -p 2> /dev/null | grep -q "^[[:space:]]*$1 ([^)]*x86-64"
 }
 
 # Prints the package that provides shared library $1 on this distribution. dnf and zypper
@@ -274,6 +469,7 @@ aegnux_soname_pkg() {
         apt:libgnutls.so.30) echo libgnutls30 ;;
         apt:libEGL.so.1) echo libegl1 ;;
         apt:libGL.so.1) echo libgl1 ;;
+        apt:libpulse.so.0) echo libpulse0 ;;
         pacman:libX11.so.6) echo libx11 ;;
         pacman:libXext.so.6) echo libxext ;;
         pacman:libXi.so.6) echo libxi ;;
@@ -289,6 +485,7 @@ aegnux_soname_pkg() {
         pacman:libfontconfig.so.1) echo fontconfig ;;
         pacman:libgnutls.so.30) echo gnutls ;;
         pacman:libEGL.so.1|pacman:libGL.so.1) echo libglvnd ;;
+        pacman:libpulse.so.0) echo libpulse ;;
         dnf:*|zypper:*) echo "'$s()(64bit)'" ;;
         *) echo "$s" ;;
     esac
@@ -333,6 +530,8 @@ aegnux_pkg_hint() {
             pacman:pipx) p=python-pipx ;;
             apt:ninja|dnf:ninja) p=ninja-build ;;
             pacman:python3-mako) p=python-mako ;;
+            pacman:pulseaudio-utils) p=libpulse ;;
+            pacman:python3) p=python ;;
             zypper:python3-mako) p="$(aegnux_suse_python)-Mako" ;;
             dnf:pkg-config|pacman:pkg-config|zypper:pkg-config) p=pkgconf ;;
             dnf:x11-utils) p=xwininfo ;;

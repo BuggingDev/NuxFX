@@ -27,8 +27,8 @@ gcc -O1 -o "$WORK/xcap" "$S/tools/xcap.c" -lX11 || exit 1
 
 XVFB_PID=""
 if [ "${AEGNUX_TEST_XVFB:-1}" = 1 ] && command -v Xvfb > /dev/null; then
-    # All WSL2 distributions share one network namespace, so the abstract X sockets of other
-    # distributions' servers count as taken too (/proc/net/unix lists them).
+    # Abstract X sockets of servers that run in another mount namespace but share this network
+    # namespace (containers, other distributions) count as taken too (/proc/net/unix lists them).
     N=99
     while [ -e "/tmp/.X$N-lock" ] || grep -q "@/tmp/.X11-unix/X$N\$" /proc/net/unix 2> /dev/null; do N=$((N - 1)); done
     Xvfb ":$N" -screen 0 1920x1080x24 -nolisten tcp > /dev/null 2>&1 &

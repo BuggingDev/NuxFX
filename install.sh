@@ -3,7 +3,7 @@
 # Copyright (C) 2026 NuxFX contributors
 # One-command installer: asks every question first (After Effects folder, plugin and
 # extension folders, install folder), shows the plan, then installs without further input:
-# system packages, Wine runner, dzn (WSL2), Wine prefix, DXVK, vkd3d-proton, the CUDA
+# system packages, Wine runner, dzn (Direct3D 12 route), Wine prefix, DXVK, vkd3d-proton, the CUDA
 # bridge, After Effects and your plugins. Safe to run again: finished parts are skipped.
 #
 #   ./install.sh [options]
@@ -56,7 +56,7 @@ VKD3D_SHA=3cf2315522af5e43605ef6d3c41dad91387040bf97199934f3f7ab76caaa2f0c
 NVLIBS_URL="https://github.com/SveSop/nvidia-libs/releases/download/v1.0.2/nvidia-libs-v1.0.2.tar.xz"
 NVLIBS_SHA=01e8bb6368d088e22d8e8f1d02497214e8db436476021725ef0c0707b7cb1738
 # winetricks is a single shell script. The distributions' packages differ (Debian keeps it in
-# contrib, which WSL's Debian image does not enable), so the pinned upstream script is used.
+# contrib, which is not enabled by default), so the pinned upstream script is used.
 WT_URL="https://raw.githubusercontent.com/Winetricks/winetricks/20250102/src/winetricks"
 WT_SHA=53194dead910f8a5eb1deacaa4773d4e48f5873633d18ab1ecd6fdb0cb92243b
 MESA_URL="https://archive.mesa3d.org/mesa-25.2.8.tar.xz"
@@ -97,38 +97,44 @@ ask_dir() {
     esac
 }
 
-# Windows paths seen from WSL: /mnt/c/... Native Linux has none of them.
 ae_version_of() {
     sed -n 's/.*<Data key="ProductVersion">\([0-9][0-9.]*\).*/\1/p' "$1/AMT/application.xml" 2> /dev/null | head -n 1
 }
 
-# Normalises a path the user typed: accepts the "Support Files" folder, its parent, or a
-# Windows-style path (C:\Program Files\...).
+# Drives of a Windows installation that are mounted here (a dual-boot disk, a shared drive):
+# /mnt/<x>, /media/<user>/<label> and /run/media/<user>/<label> that have a "Program Files" folder.
+windows_drives() {
+    local d
+    for d in /mnt/* /media/*/* /run/media/*/*; do
+        if [ -d "$d/Program Files" ]; then printf '%s\n' "$d"; fi
+    done
+}
+
+# Normalises a path the user typed: accepts the "Support Files" folder or its parent.
 fix_ae_path() {
     local p=$1
-    case "$p" in [A-Za-z]:\\*) have wslpath && p=$(wslpath -u "$p") ;; esac
     if [ ! -f "$p/AfterFX.exe" ] && [ -f "$p/Support Files/AfterFX.exe" ]; then p="$p/Support Files"; fi
     printf '%s\n' "$p"
 }
 
 head1 "NuxFX installer"
-if is_wsl; then
-    ENVNAME="WSL2"
+if is_d3d12_host; then
+    ENVNAME="Direct3D 12 route"
     [ "$DZN" = auto ] && DZN=1
 else
-    ENVNAME="native Linux"
+    ENVNAME="host-driver route"
     [ "$DZN" = auto ] && DZN=0
 fi
 say "  Host:    $( . /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-Linux}" ) ($ENVNAME)"
 say "  Install: $AEGNUX_HOME"
-[ "$ENVNAME" = "native Linux" ] && note "native Linux is not verified; the host's Vulkan driver is used and dzn is skipped"
+[ "$ENVNAME" = "host-driver route" ] && note "the host-driver route has not been run on bare hardware yet; the host's Vulkan driver is used and dzn is skipped"
 if [ "$(id -u)" = 0 ]; then
     note "running as root: Wine would create a root-owned prefix; run this as a normal user"
     case " $(. /etc/os-release 2> /dev/null; echo "${ID:-} ${ID_LIKE:-}") " in
         *" debian "*|*" ubuntu "*) say "  create one with:  adduser nux && usermod -aG sudo nux   (needs the sudo package)" ;;
         *) say "  create one with:  useradd -m -G wheel nux && passwd nux   (needs the sudo package and a wheel rule in sudoers)" ;;
     esac
-    say "  then start a shell as that user (su - nux, or wsl -u nux) and run the installer again."
+    say "  then start a shell as that user (su - nux) and run the installer again."
     die "do not run the installer as root"
 fi
 
@@ -143,8 +149,9 @@ elif [ -f "$AE_DIR/AfterFX.exe" ] && [ "$FORCE" = 0 ]; then
     good "already installed in $AE_DIR (kept; use --force to copy again)"
 else
     CANDS=()
-    for base in /mnt/[a-z]/Program\ Files/Adobe; do
-        for d in "$base"/Adobe\ After\ Effects*/Support\ Files; do
+    mapfile -t DRIVES < <(windows_drives)
+    for drive in "${DRIVES[@]}"; do
+        for d in "$drive/Program Files/Adobe"/Adobe\ After\ Effects*/Support\ Files; do
             [ -f "$d/AfterFX.exe" ] && CANDS+=("$d")
         done
     done
@@ -183,13 +190,16 @@ CEP_USER_DEST=$(dirname "$(aegnux_ae_roaming)")/CEP/extensions
 say "    plugins (.aex)   $PLUG_DEST"
 say "    extensions (CEP) $CEP_DEST"
 say "    your extensions  $CEP_USER_DEST"
+mapfile -t DRIVES < <(windows_drives)
 if [ ${#PLUGIN_DIRS[@]} -eq 0 ]; then
-    for d in "/mnt/c/Program Files/Adobe/Common/Plug-ins/7.0/MediaCore"; do
+    for drive in "${DRIVES[@]}"; do
+        d="$drive/Program Files/Adobe/Common/Plug-ins/7.0/MediaCore"
         if [ -d "$d" ] && ask_yn "  Import the third-party plugins of your Windows install ($d)? Some need Windows libraries that are not copied" n; then PLUGIN_DIRS+=("$d"); fi
     done
 fi
 if [ ${#EXT_DIRS[@]} -eq 0 ]; then
-    for d in "/mnt/c/Program Files (x86)/Common Files/Adobe/CEP/extensions"; do
+    for drive in "${DRIVES[@]}"; do
+        d="$drive/Program Files (x86)/Common Files/Adobe/CEP/extensions"
         if [ -d "$d" ] && ask_yn "  Import the CEP extensions of your Windows install ($d)?" n; then EXT_DIRS+=("$d"); fi
     done
 fi
@@ -211,7 +221,7 @@ for d in "${EXT_DIRS[@]}"; do [ -d "$d" ] || die "extension folder not found: $d
 # ---------- GPU facts ----------
 
 HAVE_CUDA=0
-for l in /usr/lib/wsl/lib/libcuda.so.1 $(ldconfig -p 2> /dev/null | sed -n 's/.*libcuda\.so\.1 .*=> //p'); do
+for l in "$AEGNUX_D3D12_LIBDIR/libcuda.so.1" $(ldconfig -p 2> /dev/null | sed -n 's/.*libcuda\.so\.1 .*=> //p'); do
     [ -e "$l" ] && HAVE_CUDA=1 && break
 done
 [ "$CUDA" = 1 ] && [ "$HAVE_CUDA" = 0 ] && CUDA=0
@@ -261,18 +271,12 @@ run() {
     fi
 }
 
-# fetch URL FILE SHA256: resumes, verifies; falls back to Windows' downloader under WSL
+# fetch URL FILE SHA256: resumes, verifies
 fetch() {
     local url=$1 file=$2 sha=$3
     if [ -f "$file" ] && [ "$(sha256sum "$file" | cut -c1-64)" = "$sha" ]; then good "$(basename "$file") already downloaded"; return 0; fi
     printf '  downloading %s\n' "$(basename "$file")"
-    if ! curl -fL --retry 3 -C - -# -o "$file" "$url"; then
-        if is_wsl && have powershell.exe; then
-            note "curl failed, trying Windows' downloader"
-            rm -f "$file"
-            powershell.exe -NoProfile -Command "Invoke-WebRequest -UseBasicParsing -Uri '$url' -OutFile '$(wslpath -w "$file")'" >> "$LOG" 2>&1 || true
-        fi
-    fi
+    curl -fL --retry 3 -C - -# -o "$file" "$url" || true
     [ -f "$file" ] || die "download failed: $url"
     [ "$(sha256sum "$file" | cut -c1-64)" = "$sha" ] || { rm -f "$file"; die "SHA-256 mismatch for $(basename "$file"); removed it"; }
     good "$(basename "$file") verified"
@@ -302,10 +306,13 @@ if [ "$PACKAGES" = 1 ]; then
         # distributions' meson is current. The old case is handled after the packages.
         if have apt-get; then BASE+=(pipx python3-venv); else BASE+=(meson); fi
     fi
-    # The Vulkan loader is needed by Wine on every host; under WSL2 the OpenGL driver
-    # (Mesa's d3d12 Gallium driver) comes from the distribution's Mesa package.
+    # The Vulkan loader is needed by Wine on every host; on the Direct3D 12 route the OpenGL
+    # driver (Mesa's d3d12 Gallium driver) comes from the distribution's Mesa package.
     BASE+=(vulkan-loader)
-    is_wsl && BASE+=(mesa-dri)
+    is_d3d12_host && BASE+=(mesa-dri)
+    # python3 plays the silent stream that keeps the sound server of the Direct3D 12 route awake while
+    # After Effects runs (scripts/sound_keepalive.sh; pacat does it as well), otherwise RAM preview breaks.
+    BASE+=(python3)
     # Libraries the Wine runner opens at run time. It does not complain when one is missing:
     # without libXcomposite After Effects' Composition panel stays black.
     WINE_LIBS=$(aegnux_wine_libs_missing | tr '\n' ' ')
@@ -316,9 +323,10 @@ if [ "$PACKAGES" = 1 ]; then
     for t in git curl tar xz zstd cabextract awk pgrep which; do have "$t" || MISSING_ANY=1; done
     [ -n "$WINE_LIBS" ] && MISSING_ANY=1
     ldconfig -p 2> /dev/null | grep -q 'libvulkan\.so\.1' || MISSING_ANY=1
-    if is_wsl; then
+    if is_d3d12_host; then
         ls /usr/lib/x86_64-linux-gnu/dri/d3d12_dri.so /usr/lib64/dri/d3d12_dri.so /usr/lib/dri/d3d12_dri.so > /dev/null 2>&1 || MISSING_ANY=1
     fi
+    have python3 || MISSING_ANY=1
     if [ "$DZN" = 1 ] && [ -n "$(aegnux_build_missing)" ]; then MISSING_ANY=1; fi
     if [ "$MISSING_ANY" = 1 ]; then
         say "  needs: $CMD"
