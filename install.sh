@@ -271,6 +271,14 @@ run() {
     fi
 }
 
+# soft DESCRIPTION CMD...: like run, but a failure only prints a note
+soft() {
+    local desc=$1; shift
+    printf '  %s ... ' "$desc"
+    echo "### $desc: $*" >> "$LOG"
+    if "$@" < /dev/null >> "$LOG" 2>&1; then printf '%sdone%s\n' "$G" "$N"; else printf '%sfailed%s (the installation goes on)\n' "$Y" "$N"; fi
+}
+
 # fetch URL FILE SHA256: resumes, verifies
 fetch() {
     local url=$1 file=$2 sha=$3
@@ -332,6 +340,9 @@ if [ "$PACKAGES" = 1 ]; then
         say "  needs: $CMD"
         [ "$DZN" = 1 ] && say "         $(aegnux_mesa_dev_hint)"
         if ask_yn "  Run these with sudo?" y; then
+            # A fresh system has no package lists, or lists that are incomplete (Ubuntu's WSL image found no
+            # candidate for cabextract, ninja-build and pipx), so apt refreshes them first.
+            have apt-get && soft "updating the package lists" sudo apt-get update
             run "installing base packages" env DEBIAN_FRONTEND=noninteractive bash -c "$(printf '%s\n' "$CMD" | noninteractive)"
             [ "$DZN" = 1 ] && run "installing Mesa build libraries" env DEBIAN_FRONTEND=noninteractive bash -c "$(aegnux_mesa_dev_hint | noninteractive)"
         else
