@@ -340,7 +340,7 @@ if [ "$PACKAGES" = 1 ]; then
         say "  needs: $CMD"
         [ "$DZN" = 1 ] && say "         $(aegnux_mesa_dev_hint)"
         if ask_yn "  Run these with sudo?" y; then
-            # A fresh system has no package lists, or lists that are incomplete (Ubuntu's WSL image found no
+            # A fresh system has no package lists, or lists that are incomplete (a fresh Ubuntu image found no
             # candidate for cabextract, ninja-build and pipx), so apt refreshes them first.
             have apt-get && soft "updating the package lists" sudo apt-get update
             run "installing base packages" env DEBIAN_FRONTEND=noninteractive bash -c "$(printf '%s\n' "$CMD" | noninteractive)"

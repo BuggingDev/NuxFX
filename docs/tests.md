@@ -41,7 +41,10 @@ scripts/gpu_sniffer_test.sh        # dzn entrypoint audit, then After Effects' G
   (push descriptors, descriptor features, robustness, transform feedback, semaphores, GPUSniffer) need the
   Vulkan headers (`libvulkan-dev`) and `glslangValidator`; the Wayland test needs `Xwayland` and, for
   sway, `sway` and `grim`, for KWin `kwin_wayland`, `dbus-run-session`, `spectacle` and ImageMagick.
-  `scripts/doctor.sh` prints the install command for your distribution.
+  `scripts/doctor.sh` prints the install command for your distribution. On openSUSE's image for
+  the Direct3D 12 route, `xorg-x11-server-Xvfb` conflicts with the package `patterns-wsl-tmpfiles`:
+  answer zypper's question with the solution that removes that package (non-interactively:
+  `zypper install --force-resolution ...`). The tests ran as intended after that.
 - `run_push_descriptor_test.sh`, `run_descriptor_features_test.sh`, `run_robustness_test.sh` and
   `run_xfb_stub_test.sh` need the Vulkan headers and loader (`libvulkan-dev`), `glslangValidator`
   (not the last one) and the dzn build. `gpu_sniffer_test.sh` needs the dzn build and the After

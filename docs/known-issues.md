@@ -571,6 +571,17 @@ be the cause: the renderer loads and runs, and the Ignore flag does not matter.
   `AEGNUX_NULL_AUDIO=1` gives After Effects a silent output from a PulseAudio server of its own
   (`scripts/null_audio.sh`). `install.sh` makes sure of `python3` and of `libpulse.so.0` (Wine's
   audio driver links it; without it After Effects plays no sound).
+- On the real display (After Effects started with `launch_ae.sh` on the desktop's own X server,
+  a comp with a 440 Hz tone layer, three previews of 14 s with 8 s between them, started by the
+  Play Current Preview command from a startup script): with the silent stream the picture advanced
+  at 1.00 comp seconds per second in every preview, the three previews all started, the current time
+  jumped to the stop frame each time, and the tone reached the sound output (peak 7999 of 8000 in
+  three bursts). With `AEGNUX_SOUND_KEEPALIVE=0` the first preview played, the second and third never
+  started and the picture stayed on the stop frame. A recording of the output's monitor counts as use
+  of the output and keeps it from suspending, so a run that records hides the fault (the control run
+  has no recording). A second distribution installed on the same machine does not see these streams
+  (its sound server socket is another one), so a recording has to come from the distribution that
+  runs After Effects.
 - Not known: why the RDP sink fails to resume (the sound server of the display stack is not
   examined; the sequence above is a reproduction to report upstream, not reported). PipeWire's
   and PulseAudio's own servers on a machine with a sound card were not tested. After Effects
