@@ -16,6 +16,7 @@ if ! command -v cc > /dev/null 2>&1; then
     echo "FAIL: cc not found ($(aegnux_pkg_hint gcc))"
     exit 1
 fi
+aegnux_have_vulkan_headers || { echo "FAIL: the Vulkan headers are not installed ($(aegnux_pkg_hint libvulkan-dev))"; exit 1; }
 WORK=$(mktemp -d) || exit 1
 trap 'rm -rf "$WORK"' EXIT
 cc -O1 -Wall -Wextra -o "$WORK/xfb_stub_test" "$HERE/xfb_stub_test.c" $(pkg-config --cflags --libs vulkan 2> /dev/null || echo -lvulkan) || exit 1

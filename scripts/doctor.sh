@@ -280,6 +280,11 @@ if have Xvfb; then
 else
     warn "Xvfb not installed: AE tests run on your desktop ($(aegnux_pkg_hint xvfb))"
 fi
+if aegnux_have_vulkan_headers && have glslangValidator; then
+    ok "Vulkan headers and glslangValidator (the tests that build a Vulkan program)"
+else
+    warn "the Vulkan tests (push descriptors, descriptor features, robustness, transform feedback, semaphores, GPUSniffer) need the Vulkan headers and glslangValidator ($(aegnux_pkg_hint libvulkan-dev glslangValidator))"
+fi
 
 if [ "${1:-}" = --build ]; then
     echo "Build tools (build_dzn.sh)"

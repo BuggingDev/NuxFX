@@ -447,6 +447,11 @@ aegnux_have_lib() {
     "$ld" -p 2> /dev/null | grep -q "^[[:space:]]*$1 ([^)]*x86-64"
 }
 
+# True when the Vulkan headers are installed (the tests that build a native Vulkan program need them).
+aegnux_have_vulkan_headers() {
+    echo '#include <vulkan/vulkan.h>' | cc -E -x c - > /dev/null 2>&1
+}
+
 # Prints the package that provides shared library $1 on this distribution. dnf and zypper
 # install a package by the library it provides, so only apt and pacman need a table.
 aegnux_soname_pkg() {

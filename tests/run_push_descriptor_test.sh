@@ -21,6 +21,7 @@ if ! command -v glslangValidator > /dev/null 2>&1; then
     echo "FAIL: glslangValidator not found ($(aegnux_pkg_hint glslangValidator))"
     exit 1
 fi
+aegnux_have_vulkan_headers || { echo "FAIL: the Vulkan headers are not installed ($(aegnux_pkg_hint libvulkan-dev))"; exit 1; }
 
 WORK=$(mktemp -d) || exit 1
 trap 'rm -rf "$WORK"' EXIT

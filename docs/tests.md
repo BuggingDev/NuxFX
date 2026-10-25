@@ -37,7 +37,9 @@ scripts/gpu_sniffer_test.sh        # dzn entrypoint audit, then After Effects' G
   private sway or KWin compositor. (`run_dxgi_present_test.sh` and `gpu_sniffer_test.sh` open their
   windows on your current display.)
 - Packages: `xdotool`, `xwininfo` (`x11-utils`), `xvfb`, `python3` and `gcc` with X11 headers; the
-  Windows test programs need `x86_64-w64-mingw32-gcc`; the Wayland test needs `Xwayland` and, for
+  Windows test programs need `x86_64-w64-mingw32-gcc`; the tests that build a native Vulkan program
+  (push descriptors, descriptor features, robustness, transform feedback, semaphores, GPUSniffer) need the
+  Vulkan headers (`libvulkan-dev`) and `glslangValidator`; the Wayland test needs `Xwayland` and, for
   sway, `sway` and `grim`, for KWin `kwin_wayland`, `dbus-run-session`, `spectacle` and ImageMagick.
   `scripts/doctor.sh` prints the install command for your distribution.
 - `run_push_descriptor_test.sh`, `run_descriptor_features_test.sh`, `run_robustness_test.sh` and

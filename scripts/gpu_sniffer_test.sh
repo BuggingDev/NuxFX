@@ -6,6 +6,7 @@ set -u
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$HERE/common.sh"
 mkdir -p "$AEGNUX_TEST_DIR"
+aegnux_have_vulkan_headers || { echo "FAIL: the Vulkan headers are not installed ($(aegnux_pkg_hint libvulkan-dev))"; exit 1; }
 
 cc -O1 -Wall -o "$AEGNUX_TEST_DIR/dzn_audit" "$HERE/dzn_audit.c" -lvulkan || exit 1
 MESA_SRC="$MESA_SRC" python3 "$HERE/gen_cmds.py" "$AEGNUX_TEST_DIR/audit_cmds.txt" || exit 1
