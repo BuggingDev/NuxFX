@@ -56,6 +56,18 @@ REWORDED="0015-dzn-advertise-features-and-extensions-required-by-DX.patch 2b177b
 0017-dzn-implement-viewport-and-scissor-with-count.patch e8cf2c501f7fe877dbecfec8cc7b5f5d1927d7aa2766ddf3d075d313844cc330
 0018-dzn-report-the-CUDA-device-UUID-as-the-device-UUID-u.patch 93da27b51fe046f5abd6459a03c27986b6ccf909da97e459c18dec85659a4bd1
 0021-dzn-share-timeline-semaphores-through-a-memfd.patch 87be8eb25fa07f5445687420ce859a8b823b20ad1e901f2bbc2a6317b1b8b05e"
+# A tree that was patched with a patch this series no longer has (the early series was renumbered) cannot
+# take the new ones: git apply would fail on a change that is already there. Say so before it does.
+if [ -s "$APPLIED" ]; then
+    while read -r first rest; do
+        name=${rest:-$first}
+        if [ -n "$name" ] && [ ! -f "$REPO/patches/$name" ]; then
+            echo "$MESA_SRC was patched with $name, which is not in this series any more (the series was renumbered)." >&2
+            echo "Build in a fresh Mesa tree, for example: MESA_SRC=\$HOME/src/mesa-$MESA_VERSION-new MESA_BUILD=\$HOME/src/mesa-$MESA_VERSION-new/build MESA_TARBALL=<mesa-$MESA_VERSION.tar.xz> $0" >&2
+            exit 1
+        fi
+    done < "$APPLIED"
+fi
 if [ ! -s "$APPLIED" ]; then
     : > "$APPLIED"
     for ((i = ${#PATCHES[@]} - 1; i >= 0; i--)); do

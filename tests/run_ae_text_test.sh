@@ -71,7 +71,8 @@ printf 'app.scheduleTask("$.evalFile(new File(\x27C:/users/%s/aegnux_text_test.j
 
 "$S/stop_ae.sh" > /dev/null 2>&1
 "$S/clear_crash_state.sh" > /dev/null
-AEGNUX_COACHMARKS=0 "$S/ae_prefs.sh" > /dev/null
+# the script writes its result to a file, which After Effects allows only with this preference
+AEGNUX_COACHMARKS=0 AEGNUX_SCRIPT_FILE_ACCESS=1 "$S/ae_prefs.sh" > /dev/null
 aegnux_env
 cd "$AE_DIR" || exit 1
 timeout $((WAIT + 30)) wine AfterFX.exe > /dev/null 2> /dev/null < /dev/null &

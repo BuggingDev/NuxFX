@@ -27,6 +27,7 @@ keep the `aegnux` name (`AEGNUX_*`, `~/.local/share/aegnux`), as in
 | `AEGNUX_NULL_AUDIO` | `0` | `1` gives After Effects a silent audio output from a PulseAudio server of its own (`scripts/null_audio.sh`; `launch_ae.sh` starts and stops it, and `aegnux_env` points `PULSE_SERVER` at it) and leaves the machine's sound server alone. Needs `pulseaudio` and `pactl`. `AEGNUX_AUDIO_RUN` moves the folder of that server and of the pid files of `sound_keepalive.sh` |
 | `AEGNUX_HIDE_HOME_SCREEN` | `1` | `0` keeps After Effects' Home screen setting. On a first start `ae_prefs.sh` writes a preferences file with the Home screen off |
 | `AEGNUX_COACHMARKS` | `1` | `0` switches off the first-start tips (the tests use it) |
+| `AEGNUX_SCRIPT_FILE_ACCESS` | `0` | `1` switches on "Allow Scripts to Write Files and Access Network" in After Effects' preferences (`ae_prefs.sh` sets `Pref_SCRIPTING_FILE_NETWORK_SECURITY`). Off by default, as in After Effects; the text and effects tests set it, because their startup script reports its result through a file |
 | `AEGNUX_EXTRA_OVERRIDES` | empty | Extra `WINEDLLOVERRIDES` entries |
 | `AEGNUX_WINEDEBUG` | errors only | `WINEDEBUG` for After Effects |
 | `AEGNUX_APIVER_LAYER` | `0` | `1` enables the optional apiVersion layer (not needed with patch 04) |

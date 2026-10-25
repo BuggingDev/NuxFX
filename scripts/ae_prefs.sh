@@ -11,6 +11,9 @@
 #   bridge cannot share resources with vkd3d-proton, so that display never presents
 #   and the panel stays empty. With this setting AE uses its non-DirectX display.
 #   AEGNUX_DIRECTX_DISPLAY=1 leaves the setting alone.
+# "Pref_SCRIPTING_FILE_NETWORK_SECURITY" = "1" (Prefs.txt, "Main Pref Section v2"), only with AEGNUX_SCRIPT_FILE_ACCESS=1
+#   "Allow Scripts to Write Files and Access Network". The tests that read their result back from a
+#   startup script (text, effects) need it; it is off by default, as in After Effects.
 # "Show Welcome Screen" = 00 (Adobe After Effects <version> Prefs.txt)
 #   The HTML Home screen renders as an empty panel that covers the workspace.
 #   AEGNUX_HIDE_HOME_SCREEN=0 leaves the setting alone.
@@ -106,6 +109,9 @@ printf '%s\n' "$DIRS" | while IFS= read -r dir; do
         [ -f "$prefs" ] || continue
         if [ "${AEGNUX_HIDE_HOME_SCREEN:-1}" = 1 ]; then
             set_pref "$prefs" "General Section" "Show Welcome Screen" 00
+        fi
+        if [ "${AEGNUX_SCRIPT_FILE_ACCESS:-0}" = 1 ]; then
+            set_pref "$prefs" "Main Pref Section v2" "Pref_SCRIPTING_FILE_NETWORK_SECURITY" '"1"'
         fi
         # The first-start tips pop up over the workspace; the tests switch them off.
         if [ "${AEGNUX_COACHMARKS:-1}" = 0 ]; then
