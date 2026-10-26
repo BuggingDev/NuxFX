@@ -83,7 +83,9 @@ renderer does not.
 
 Clone this repository and run `./install.sh` (see [Quick start](#quick-start)). It installs the system
 packages, Wine, DXVK, vkd3d-proton, the CUDA bridge and your After Effects files, and ends with
-`scripts/doctor.sh`. You provide the files of your own licensed After Effects 2024.
+`scripts/doctor.sh`. Nothing is compiled: the patched Mesa (Vulkan and OpenGL driver) is downloaded as
+a prebuilt package from this project's releases, checked by SHA-256, and built from source only when no
+package fits your system. You provide the files of your own licensed After Effects 2024.
 
 ### Does NuxFX include After Effects or a license?
 
@@ -113,7 +115,7 @@ dnf, pacman, zypper) but were not verified.
 
 The five verification runs used one NVIDIA GPU that the system reaches through Direct3D 12, with
 Mesa's Dozen (dzn) Vulkan driver and the patches in [`patches/`](patches). On a machine with a native
-driver the installer takes another route: it skips the dzn and Mesa builds and uses the host's Vulkan
+driver the installer takes another route: it skips dzn and the Mesa packages and uses the host's Vulkan
 and OpenGL drivers and `libcuda`. That route is implemented but has not been run on bare hardware
 yet. Reports are welcome; attach the output of `scripts/doctor.sh`.
 

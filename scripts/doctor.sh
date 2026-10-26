@@ -108,12 +108,24 @@ if [ "$MODE" = dzn ]; then
     if [ -f "$ICD" ]; then
         LIB=$(sed -n 's/.*"library_path": *"\([^"]*\)".*/\1/p' "$ICD")
         if [ -f "$LIB" ]; then
-            ok "dzn: $LIB"
+            REC="$DZN_PREFIX/.nuxfx-prebuilt"
+            if [ -f "$REC" ] && [ "$(sed -n 's/^series=//p' "$REC")" = "$(aegnux_series_hash)" ]; then
+                ok "dzn: $LIB (prebuilt package of this project, patch series $(sed -n 's/^series=//p' "$REC" | cut -c1-12))"
+            elif [ -f "$REC" ]; then
+                warn "dzn: $LIB is a prebuilt package of another patch series than this checkout's; run ./install.sh to replace it"
+            else
+                ok "dzn: $LIB (built from source)"
+            fi
             # Patch 21 names its memfd "dzn-timeline-semaphore"; the string is in the library.
             if grep -aq 'dzn-timeline-semaphore' "$LIB"; then
                 ok "dzn has patch 21 (shared timeline semaphores)"
             else
-                warn "dzn lacks patch 21 (shared timeline semaphores): After Effects crashes when the viewer shows an Advanced 3D comp; rebuild with scripts/build_dzn.sh"
+                warn "dzn lacks patch 21 (shared timeline semaphores): After Effects crashes when the viewer shows an Advanced 3D comp; run ./install.sh to update it (or rebuild with scripts/build_dzn.sh)"
+            fi
+            MESA_LIBS=$(aegnux_mesa_libs_missing | tr '\n' ' ')
+            if [ -n "$MESA_LIBS" ]; then
+                fail "libraries of dzn are missing: $MESA_LIBS"
+                echo "          $(aegnux_pkg_hint $MESA_LIBS)"
             fi
         else
             fail "$ICD points to a missing library: $LIB"
@@ -121,11 +133,11 @@ if [ "$MODE" = dzn ]; then
         API=$(sed -n 's/.*"api_version": *"\([^"]*\)".*/\1/p' "$ICD")
         case "$API" in
             1.3.*|1.4.*|1.[5-9].*) ok "dzn ICD api_version: $API" ;;
-            "") warn "dzn ICD has no api_version (rebuild with scripts/build_dzn.sh)" ;;
-            *) warn "dzn ICD api_version is $API, but dzn reports 1.3 (patch 04); rebuild with scripts/build_dzn.sh" ;;
+            "") warn "dzn ICD has no api_version (run ./install.sh, or rebuild with scripts/build_dzn.sh)" ;;
+            *) warn "dzn ICD api_version is $API, but dzn reports 1.3 (patch 04); run ./install.sh, or rebuild with scripts/build_dzn.sh" ;;
         esac
     else
-        fail "dzn ICD missing: $ICD (run scripts/build_dzn.sh, or set DZN_PREFIX)"
+        fail "dzn ICD missing: $ICD (run ./install.sh, or scripts/build_dzn.sh; or set DZN_PREFIX)"
     fi
     for l in "$AEGNUX_D3D12_LIBDIR/libd3d12.so" "$AEGNUX_D3D12_LIBDIR/libdxcore.so"; do
         if [ -e "$l" ]; then ok "$l"; else fail "$l missing (Direct3D 12 runtime of the GPU driver)"; fi
@@ -206,7 +218,8 @@ if is_d3d12_host; then
     if [ "${AEGNUX_SYSTEM_GL:-0}" = 1 ]; then
         ok "AEGNUX_SYSTEM_GL=1: the distribution's OpenGL is used"
     elif [ -f "$AEGNUX_GL_PREFIX/lib/libEGL.so.1" ]; then
-        ok "Mesa 25.2.8 EGL and d3d12 driver: $AEGNUX_GL_PREFIX (first in LD_LIBRARY_PATH for Wine)"
+        if [ -f "$AEGNUX_GL_PREFIX/.nuxfx-prebuilt" ]; then GLHOW="prebuilt package of this project"; else GLHOW="built from source"; fi
+        ok "Mesa 25.2.8 EGL and d3d12 driver: $AEGNUX_GL_PREFIX ($GLHOW; first in LD_LIBRARY_PATH for Wine)"
     else
         # The distribution's Mesa version is in the file name of its libgallium.
         DMESA=$(for f in /usr/lib/x86_64-linux-gnu/libgallium-*.so /usr/lib64/libgallium-*.so /usr/lib/libgallium-*.so; do

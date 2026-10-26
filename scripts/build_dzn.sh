@@ -98,6 +98,11 @@ for p in "${PATCHES[@]}"; do
     (cd "$MESA_SRC" && git apply "$p")
     echo "$sum  $name" >> "$APPLIED"
 done
+# AEGNUX_APPLY_PATCHES_ONLY=1: stop here (the OpenGL build from source wants the patched tree, see install.sh)
+if [ "${AEGNUX_APPLY_PATCHES_ONLY:-0}" = 1 ]; then
+    echo "patches applied to $MESA_SRC"
+    exit 0
+fi
 
 MESON_OPTS=(
     -Dbuildtype=release
@@ -120,27 +125,14 @@ ninja -C "$MESA_BUILD" src/microsoft/vulkan/libvulkan_dzn.so
 
 mkdir -p "$DZN_PREFIX/lib" "$DZN_PREFIX/share/vulkan/icd.d"
 install -m 755 "$MESA_BUILD/src/microsoft/vulkan/libvulkan_dzn.so" "$DZN_PREFIX/lib/"
-cat > "$DZN_PREFIX/share/vulkan/icd.d/dzn_icd.x86_64.json" <<EOF
-{
-    "ICD": {
-        "api_version": "1.3.318",
-        "library_arch": "64",
-        "library_path": "$DZN_PREFIX/lib/libvulkan_dzn.so"
-    },
-    "file_format_version": "1.0.1"
-}
-EOF
+aegnux_write_dzn_icd
+
+# A source build replaces a prebuilt package (scripts/fetch_prebuilt.sh): its record must not outlive it.
+rm -f "$DZN_PREFIX/.nuxfx-prebuilt"
 
 # Optional apiVersion layer (AEGNUX_APIVER_LAYER=1 enables it; patch 04 made it
 # unnecessary in the tested setup)
-if echo '#include <vulkan/vulkan.h>' | cc -E -x c - > /dev/null 2>&1; then
-    mkdir -p "$AEGNUX_LAYER_DIR"
-    gcc -shared -fPIC -O2 -o "$AEGNUX_LAYER_DIR/libapiver_layer.so" "$HERE/apiver_layer/apiver_layer.c"
-    sed "s|__AEGNUX_LAYER_LIB__|$AEGNUX_LAYER_DIR/libapiver_layer.so|" \
-        "$HERE/apiver_layer/VkLayer_AEGNUX_apiversion.json.in" > "$AEGNUX_LAYER_DIR/VkLayer_AEGNUX_apiversion.json"
-else
-    echo "note: the Vulkan headers are not installed (vulkan-headers, libvulkan-dev); the optional apiVersion layer is not built" >&2
-fi
+"$HERE/build_layer.sh"
 
 # Remember the locations so that the other scripts find this build without extra
 # environment variables.

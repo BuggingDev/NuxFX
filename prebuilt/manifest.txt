@@ -1,0 +1,6 @@
+# NuxFX prebuilt Mesa packages, written by scripts/package_prebuilt.sh.
+# <component> <Mesa version> <patch series sha256> <architecture> <asset> <sha256 of the asset> <size in bytes>
+# scripts/fetch_prebuilt.sh uses a package only when its series hash is the one of patches/ in the checkout.
+base https://github.com/chunsal/NuxFX/releases/download/mesa-25.2.8-s30872aa8
+dzn 25.2.8 30872aa8745a71984bd69b802431a37333bdbbd629d7292b246b1d2b61b0faf9 x86_64 nuxfx-mesa-dzn-25.2.8-s30872aa8745a-x86_64.tar.zst c713d92ec3704929293e38868465c2c67340768710724742f25799f5928f8d88 1887578
+gl 25.2.8 30872aa8745a71984bd69b802431a37333bdbbd629d7292b246b1d2b61b0faf9 x86_64 nuxfx-mesa-gl-25.2.8-s30872aa8745a-x86_64.tar.zst 17926ba48eb76215c8ba555023b36b0ca74e203de6705d8cbb61ac7f09b626da 4735549

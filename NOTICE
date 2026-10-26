@@ -66,12 +66,24 @@ under the GNU General Public License, version 3. AEGNUX is inspired by AeNux by 
 AEGNUX (~/.local/share/aegnux, AEGNUX_* settings) and is distributed under the GNU General
 Public License as well (version 3 or later, see above).
 
+Prebuilt Mesa packages (release assets)
+---------------------------------------
+
+The releases of this project carry two packages with binaries built from Mesa 25.2.8 and
+the patches in patches/ (scripts/package_prebuilt.sh; prebuilt/manifest.txt lists them):
+the Vulkan driver libvulkan_dzn.so, and Mesa's EGL and Direct3D 12 OpenGL driver
+(libEGL, libGLESv2, libgallium). They are not part of the source tree. Each package holds
+the Mesa license texts (LICENSE-Mesa.rst and licenses/), the license of DirectX-Headers
+(Microsoft, MIT), which Meson links into both libraries, and SOURCE.txt with the Mesa
+version, the hash of the patch series and the checksum of every patch. The corresponding
+source is the Mesa 25.2.8 release tarball plus the patches of this repository.
+
 Other components
 ----------------
 
 NuxFX does not contain Wine, the Wine TkG runner, DXVK, vkd3d-proton, nvidia-libs, the
-Mesa release tarball or any Adobe software. These keep their own licenses. Their
-upstream projects:
+Mesa release tarball or any Adobe software (the Mesa packages above are built from the
+tarball and the patches). These keep their own licenses. Their upstream projects:
 
 - Wine TkG:      https://github.com/Frogging-Family/wine-tkg-git
 - DXVK:          https://github.com/doitsujin/dxvk

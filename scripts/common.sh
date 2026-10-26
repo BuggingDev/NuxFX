@@ -27,6 +27,7 @@ if [ -f "$AEGNUX_CONFIG" ]; then
 fi
 
 AEGNUX_SCRIPTS_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+AEGNUX_REPO=$(cd "$AEGNUX_SCRIPTS_DIR/.." && pwd)
 AEGNUX_HOME="${AEGNUX_HOME:-$HOME/.local/share/aegnux}"
 WINE_BIN_DIR="${WINE_BIN_DIR:-$AEGNUX_HOME/runner/bin}"
 WINEPREFIX="${WINEPREFIX:-$AEGNUX_HOME/wineprefix}"
@@ -68,6 +69,27 @@ aegnux_vulkan_mode() {
 
 aegnux_dzn_icd() {
     echo "$DZN_PREFIX/share/vulkan/icd.d/dzn_icd.x86_64.json"
+}
+
+# Writes the ICD manifest of the dzn library in DZN_PREFIX (build_dzn.sh and fetch_prebuilt.sh both install one).
+aegnux_write_dzn_icd() {
+    mkdir -p "$DZN_PREFIX/share/vulkan/icd.d"
+    cat > "$(aegnux_dzn_icd)" <<EOF
+{
+    "ICD": {
+        "api_version": "1.3.318",
+        "library_arch": "64",
+        "library_path": "$DZN_PREFIX/lib/libvulkan_dzn.so"
+    },
+    "file_format_version": "1.0.1"
+}
+EOF
+}
+
+# The key that ties a prebuilt Mesa package (prebuilt/manifest.txt) to the patches it was built with: the sha256 of
+# the "hash  name" lines of patches/*.patch in name order. A changed, added or removed patch gives another key.
+aegnux_series_hash() {
+    (cd "$AEGNUX_REPO/patches" && LC_ALL=C sha256sum -- *.patch) | sha256sum | cut -d' ' -f1
 }
 
 # The display server Wine talks to: "x11" or "wayland". After Effects was verified with Wine's
@@ -447,6 +469,16 @@ aegnux_have_lib() {
     "$ld" -p 2> /dev/null | grep -q "^[[:space:]]*$1 ([^)]*x86-64"
 }
 
+# Shared libraries the prebuilt Mesa packages link (the NEEDED entries of libvulkan_dzn.so, libEGL.so.1 and
+# libgallium: readelf -d). A build from source finds them through the development packages instead.
+AEGNUX_MESA_SONAMES="libdrm.so.2 libexpat.so.1 libzstd.so.1 libz.so.1 libxcb.so.1 libX11-xcb.so.1 libxcb-dri3.so.0 libxcb-present.so.0 libxcb-xfixes.so.0 libxcb-sync.so.1 libxcb-randr.so.0 libxcb-shm.so.0 libxcb-keysyms.so.1 libxshmfence.so.1 libwayland-client.so.0"
+
+# Prints the sonames of AEGNUX_MESA_SONAMES that the dynamic linker does not know.
+aegnux_mesa_libs_missing() {
+    local s
+    for s in $AEGNUX_MESA_SONAMES; do aegnux_have_lib "$s" || echo "$s"; done
+}
+
 # True when the Vulkan headers are installed (the tests that build a native Vulkan program need them).
 aegnux_have_vulkan_headers() {
     echo '#include <vulkan/vulkan.h>' | cc -E -x c - > /dev/null 2>&1
@@ -475,6 +507,30 @@ aegnux_soname_pkg() {
         apt:libEGL.so.1) echo libegl1 ;;
         apt:libGL.so.1) echo libgl1 ;;
         apt:libpulse.so.0) echo libpulse0 ;;
+        apt:libdrm.so.2) echo libdrm2 ;;
+        apt:libexpat.so.1) echo libexpat1 ;;
+        apt:libzstd.so.1) echo libzstd1 ;;
+        apt:libz.so.1) echo zlib1g ;;
+        apt:libxcb.so.1) echo libxcb1 ;;
+        apt:libX11-xcb.so.1) echo libx11-xcb1 ;;
+        apt:libxcb-dri3.so.0) echo libxcb-dri3-0 ;;
+        apt:libxcb-present.so.0) echo libxcb-present0 ;;
+        apt:libxcb-xfixes.so.0) echo libxcb-xfixes0 ;;
+        apt:libxcb-sync.so.1) echo libxcb-sync1 ;;
+        apt:libxcb-randr.so.0) echo libxcb-randr0 ;;
+        apt:libxcb-shm.so.0) echo libxcb-shm0 ;;
+        apt:libxcb-keysyms.so.1) echo libxcb-keysyms1 ;;
+        apt:libxshmfence.so.1) echo libxshmfence1 ;;
+        apt:libwayland-client.so.0) echo libwayland-client0 ;;
+        pacman:libdrm.so.2) echo libdrm ;;
+        pacman:libexpat.so.1) echo expat ;;
+        pacman:libzstd.so.1) echo zstd ;;
+        pacman:libz.so.1) echo zlib ;;
+        pacman:libxcb.so.1|pacman:libxcb-dri3.so.0|pacman:libxcb-present.so.0|pacman:libxcb-xfixes.so.0|pacman:libxcb-sync.so.1|pacman:libxcb-randr.so.0|pacman:libxcb-shm.so.0) echo libxcb ;;
+        pacman:libX11-xcb.so.1) echo libx11 ;;
+        pacman:libxcb-keysyms.so.1) echo xcb-util-keysyms ;;
+        pacman:libxshmfence.so.1) echo libxshmfence ;;
+        pacman:libwayland-client.so.0) echo wayland ;;
         pacman:libX11.so.6) echo libx11 ;;
         pacman:libXext.so.6) echo libxext ;;
         pacman:libXi.so.6) echo libxi ;;

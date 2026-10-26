@@ -27,6 +27,7 @@ tests/run_d3d11_tessellation_test.sh   # a D3D11 hull/domain shader draws throug
 tests/run_semaphore_share_test.sh  # two Vulkan devices share a timeline semaphore (patch 21)
 tests/run_d3d11_shared_texture_test.sh  # two Direct3D 11 devices share a texture, with and without a keyed mutex (patch 21)
 tests/run_dxgi_present_test.sh     # a Direct3D 11 swapchain shows its backbuffer (patch 17)
+tests/run_prebuilt_test.sh         # the prebuilt Mesa packages match the patches, download, install and load; bad input is refused (no Wine, no After Effects)
 scripts/gpu_sniffer_test.sh        # dzn entrypoint audit, then After Effects' GPUSniffer test
 ```
 
@@ -161,6 +162,12 @@ scripts/gpu_sniffer_test.sh        # dzn entrypoint audit, then After Effects' G
   reads `gl_PatchVerticesIn`, which crashed `vkCreateGraphicsPipelines` before patch 25. The program
   releases its objects before it returns: a Wine process that exits while DXVK's compiler threads are
   still inside dzn can die at exit ("nested exception on signal stack"). About 1 minute.
+- `run_prebuilt_test.sh` (no Wine, no After Effects) checks that `prebuilt/manifest.txt` is for the
+  patch series of the checkout, downloads both Mesa packages, installs them into a private folder
+  (your installation is not touched) and checks that dzn has patch 21 and that the libraries load.
+  It then checks that `fetch_prebuilt.sh` refuses a damaged download (the install stays), a checkout of
+  another patch series and an archive with a path outside its folder, all with exit status 3 (the
+  installer builds from source then). It skips without network access. About 20 seconds.
 
 ## Notes for people who run the tests
 

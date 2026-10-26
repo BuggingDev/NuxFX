@@ -103,9 +103,10 @@ sudo zypper install libX11-6 libXext6 libXi6 libXrandr2 libXrender1 libXfixes3 l
     libfontconfig1 libgnutls30 libEGL1 libGL1 libpulse0
 ```
 
-### Libraries for the Mesa builds (Direct3D 12 route)
+### Libraries for building Mesa from source (Direct3D 12 route)
 
-Mesa 25.2.8 needs more development packages than the lists above.
+Only a build from source needs these; the prebuilt packages (section 3) need the runtime libraries
+that `scripts/doctor.sh` lists. Mesa 25.2.8 needs more development packages than the lists above.
 
 ```sh
 # Ubuntu, Debian
@@ -142,10 +143,26 @@ echo 'vm.max_map_count=1048576' | sudo tee /etc/sysctl.d/99-nuxfx.conf && sudo s
 
 ## 3. Mesa: dzn and OpenGL (Direct3D 12 route)
 
+The patched Mesa 25.2.8 comes as two prebuilt packages, release assets of this project that
+`prebuilt/manifest.txt` lists with their SHA-256. They were built on Ubuntu 24.04 and need glibc 2.38
+or newer and the libraries that `scripts/doctor.sh` checks (it prints the install command).
+
+```sh
+git clone https://github.com/chunsal/NuxFX.git
+cd NuxFX
+scripts/fetch_prebuilt.sh dzn
+scripts/fetch_prebuilt.sh gl
+```
+
+`fetch_prebuilt.sh` downloads the package of your checkout's patch series, checks its SHA-256 and its
+contents, checks that its libraries load on your system, installs it under `$DZN_PREFIX` (default
+`$AEGNUX_HOME/dzn`) or `$AEGNUX_GL_PREFIX` (default `$AEGNUX_HOME/mesa-gl`) and writes the location to
+`~/.config/aegnux/aegnux.conf`. It needs `curl`, `tar` and `zstd`. Exit status 3 means that no package
+fits (another patch series, an older glibc, no network, a missing library); then build from source:
+
 ```sh
 cd ~
 curl -LO https://archive.mesa3d.org/mesa-25.2.8.tar.xz
-git clone https://github.com/chunsal/NuxFX.git
 cd NuxFX
 MESA_TARBALL="$HOME/mesa-25.2.8.tar.xz" scripts/build_dzn.sh
 scripts/build_gl.sh

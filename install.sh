@@ -15,14 +15,16 @@
 #     --home DIR           install folder (default ~/.local/share/aegnux)
 #     --no-packages        do not install system packages
 #     --no-cuda            do not install the CUDA bridge
-#     --no-dzn            do not build dzn (default on native Linux)
+#     --no-dzn             do not install dzn (default on native Linux)
+#     --build-from-source  build dzn and Mesa's OpenGL driver here instead of downloading the prebuilt
+#                          packages of this project (also: AEGNUX_PREBUILT=0)
 #     --force              redo parts that look finished
 #     --dry-run            show the plan and the commands, change nothing
 #     -h, --help           this text
 set -u
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
-YES=0; DRY=0; FORCE=0; PACKAGES=1; CUDA=1; DZN=auto
+YES=0; DRY=0; FORCE=0; PACKAGES=1; CUDA=1; DZN=auto; PREBUILT=1
 OPT_HOME=""; OPT_AE=""; PLUGIN_DIRS=(); EXT_DIRS=()
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -34,13 +36,15 @@ while [ $# -gt 0 ]; do
         --no-packages) PACKAGES=0 ;;
         --no-cuda) CUDA=0 ;;
         --no-dzn) DZN=0 ;;
+        --build-from-source) PREBUILT=0 ;;
         --force) FORCE=1 ;;
         --dry-run) DRY=1 ;;
-        -h|--help) sed -n '5,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '5,23p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
     esac
     shift
 done
+[ "${AEGNUX_PREBUILT:-1}" = 0 ] && PREBUILT=0
 [ -n "$OPT_HOME" ] && export AEGNUX_HOME="$OPT_HOME"
 
 . "$HERE/scripts/common.sh"
@@ -241,8 +245,15 @@ say "  After Effects     $AE_SRC"
 say "  System packages   $([ "$PACKAGES" = 1 ] && echo yes || echo skipped)"
 say "  Memory mappings   $([ "$RAISE_MAPS" = 1 ] && echo "vm.max_map_count $MAPS, raised to 1048576 (sudo, /etc/sysctl.d/99-nuxfx.conf)" || echo "vm.max_map_count $MAPS, left alone")"
 say "  Wine runner       $WINE_VER (Wine TkG staging, checked by SHA-256)"
-say "  dzn (Mesa)        $([ "$DZN" = 1 ] && echo "build from source, takes a while" || echo skipped)"
-say "  OpenGL (Mesa)     $([ "$DZN" = 1 ] && echo "build from source (EGL and the d3d12 driver, same Mesa version)" || echo skipped)"
+if [ "$DZN" = 1 ] && [ "$PREBUILT" = 1 ]; then
+    MESA_PLAN="prebuilt package of this project (SHA-256 checked); built from source when none fits"
+elif [ "$DZN" = 1 ]; then
+    MESA_PLAN="build from source, takes a while"
+else
+    MESA_PLAN=skipped
+fi
+say "  dzn (Mesa)        $MESA_PLAN"
+say "  OpenGL (Mesa)     $([ "$DZN" = 1 ] && echo "$MESA_PLAN (EGL and the d3d12 driver, Mesa 25.2.8)" || echo skipped)"
 say "  DXVK / vkd3d      3.0.1 / 3.0.1"
 say "  CUDA bridge       $([ "$CUDA" = 1 ] && echo "nvidia-libs 1.0.2" || echo skipped)"
 say "  Plugins           ${#PLUGIN_DIRS[@]} folder(s)"
@@ -304,11 +315,64 @@ noninteractive() {
         -e 's/^sudo zypper install/sudo zypper --non-interactive install/'
 }
 
+# Meson: the distributions' meson can be too old (Ubuntu 24.04 and Debian ship one below 1.4, and Mesa 25.2.8 needs 1.4).
+# pipx first; some distributions ship a pipx with a missing dependency, so a private virtual environment is the fallback.
+ensure_meson() {
+    [ -n "$(aegnux_build_missing | grep '^meson')" ] || return 0
+    export PATH="$HOME/.local/bin:$PATH"
+    if have pipx && pipx install meson < /dev/null >> "$LOG" 2>&1; then
+        good "meson $(meson --version) installed with pipx"
+    else
+        MV="$AEGNUX_HOME/meson-venv"
+        run "installing meson in $MV" bash -c "python3 -m venv '$MV' && '$MV/bin/pip' install meson"
+        export PATH="$MV/bin:$PATH"
+    fi
+    case "$(meson --version 2> /dev/null)" in
+        "") die "meson could not be installed; install meson 1.4 or newer and run again" ;;
+    esac
+}
+
+# The build tools of a source build of Mesa are installed with the system packages when a source build was asked for.
+# When a prebuilt package cannot be used, this installs them just before the build.
+NEED_BUILD=0
+[ "$DZN" = 1 ] && [ "$PREBUILT" = 0 ] && NEED_BUILD=1
+BUILD_TOOLS_READY=$NEED_BUILD
+install_build_tools() {
+    [ "$BUILD_TOOLS_READY" = 1 ] && return 0
+    BUILD_TOOLS_READY=1
+    [ -n "$(aegnux_build_missing)" ] || return 0
+    local pk=(gcc gcc-c++ ninja python3-mako)
+    if have apt-get; then pk+=(pipx python3-venv); else pk+=(meson); fi
+    say "  the build from source needs: $(aegnux_pkg_hint "${pk[@]}")"
+    say "                               $(aegnux_mesa_dev_hint)"
+    if [ "$PACKAGES" = 1 ] && ask_yn "  Run these with sudo?" y; then
+        have apt-get && soft "updating the package lists" sudo apt-get update
+        run "installing build packages" env DEBIAN_FRONTEND=noninteractive bash -c "$(aegnux_pkg_hint "${pk[@]}" | noninteractive)"
+        run "installing Mesa build libraries" env DEBIAN_FRONTEND=noninteractive bash -c "$(aegnux_mesa_dev_hint | noninteractive)"
+    else
+        note "skipped; the build may fail"
+    fi
+    ensure_meson
+}
+
+# try_prebuilt dzn|gl: installs the prebuilt Mesa package of this project (scripts/fetch_prebuilt.sh). A package that
+# does not exist, cannot be downloaded or does not load on this system is only a note; the caller builds from source then.
+try_prebuilt() {
+    printf '  prebuilt %s package ... ' "$1"
+    echo "### prebuilt $1: scripts/fetch_prebuilt.sh $1" >> "$LOG"
+    if "$HERE/scripts/fetch_prebuilt.sh" "$1" < /dev/null >> "$LOG" 2>&1; then
+        printf '%sdone%s\n' "$G" "$N"
+    else
+        printf '%snot used%s (%s)\n' "$Y" "$N" "$(tail -n 1 "$LOG" | cut -c1-160)"
+        return 1
+    fi
+}
+
 step "System packages"
 if [ "$PACKAGES" = 1 ]; then
     # which: vkd3d-proton's setup script finds Wine with it (openSUSE's image has none)
     BASE=(git curl tar xz zstd cabextract pkg-config awk procps which)
-    if [ "$DZN" = 1 ]; then
+    if [ "$NEED_BUILD" = 1 ]; then
         BASE+=(gcc gcc-c++ ninja python3-mako)
         # Debian and Ubuntu releases ship a meson that can be too old (24.04: 1.3); the other
         # distributions' meson is current. The old case is handled after the packages.
@@ -326,25 +390,32 @@ if [ "$PACKAGES" = 1 ]; then
     WINE_LIBS=$(aegnux_wine_libs_missing | tr '\n' ' ')
     # shellcheck disable=SC2206
     BASE+=($WINE_LIBS)
+    # The prebuilt Mesa packages link some X11, Wayland and compression libraries (a source build gets them with
+    # the development packages).
+    MESA_LIBS=""
+    if [ "$DZN" = 1 ] && [ "$PREBUILT" = 1 ]; then MESA_LIBS=$(aegnux_mesa_libs_missing | tr '\n' ' '); fi
+    # shellcheck disable=SC2206
+    BASE+=($MESA_LIBS)
     CMD=$(aegnux_pkg_hint "${BASE[@]}")
     MISSING_ANY=0
     for t in git curl tar xz zstd cabextract awk pgrep which; do have "$t" || MISSING_ANY=1; done
     [ -n "$WINE_LIBS" ] && MISSING_ANY=1
+    [ -n "$MESA_LIBS" ] && MISSING_ANY=1
     ldconfig -p 2> /dev/null | grep -q 'libvulkan\.so\.1' || MISSING_ANY=1
     if is_d3d12_host; then
         ls /usr/lib/x86_64-linux-gnu/dri/d3d12_dri.so /usr/lib64/dri/d3d12_dri.so /usr/lib/dri/d3d12_dri.so > /dev/null 2>&1 || MISSING_ANY=1
     fi
     have python3 || MISSING_ANY=1
-    if [ "$DZN" = 1 ] && [ -n "$(aegnux_build_missing)" ]; then MISSING_ANY=1; fi
+    if [ "$NEED_BUILD" = 1 ] && [ -n "$(aegnux_build_missing)" ]; then MISSING_ANY=1; fi
     if [ "$MISSING_ANY" = 1 ]; then
         say "  needs: $CMD"
-        [ "$DZN" = 1 ] && say "         $(aegnux_mesa_dev_hint)"
+        [ "$NEED_BUILD" = 1 ] && say "         $(aegnux_mesa_dev_hint)"
         if ask_yn "  Run these with sudo?" y; then
             # A fresh system has no package lists, or lists that are incomplete (a fresh Ubuntu image found no
             # candidate for cabextract, ninja-build and pipx), so apt refreshes them first.
             have apt-get && soft "updating the package lists" sudo apt-get update
             run "installing base packages" env DEBIAN_FRONTEND=noninteractive bash -c "$(printf '%s\n' "$CMD" | noninteractive)"
-            [ "$DZN" = 1 ] && run "installing Mesa build libraries" env DEBIAN_FRONTEND=noninteractive bash -c "$(aegnux_mesa_dev_hint | noninteractive)"
+            [ "$NEED_BUILD" = 1 ] && run "installing Mesa build libraries" env DEBIAN_FRONTEND=noninteractive bash -c "$(aegnux_mesa_dev_hint | noninteractive)"
         else
             note "skipped; the steps below may fail"
         fi
@@ -363,21 +434,7 @@ if [ "$RAISE_MAPS" = 1 ]; then
         note "could not raise vm.max_map_count (now $MAPS); later: echo 'vm.max_map_count=1048576' | sudo tee /etc/sysctl.d/99-nuxfx.conf && sudo sysctl --system"
     fi
 fi
-if [ "$DZN" = 1 ] && [ -n "$(aegnux_build_missing | grep '^meson')" ]; then
-    # pipx first; some distributions ship a pipx with a missing dependency, so a private
-    # virtual environment is the fallback.
-    export PATH="$HOME/.local/bin:$PATH"
-    if have pipx && pipx install meson < /dev/null >> "$LOG" 2>&1; then
-        good "meson $(meson --version) installed with pipx"
-    else
-        MV="$AEGNUX_HOME/meson-venv"
-        run "installing meson in $MV" bash -c "python3 -m venv '$MV' && '$MV/bin/pip' install meson"
-        export PATH="$MV/bin:$PATH"
-    fi
-    case "$(meson --version 2> /dev/null)" in
-        "") die "meson could not be installed; install meson 1.4 or newer and run again" ;;
-    esac
-fi
+if [ "$NEED_BUILD" = 1 ]; then ensure_meson; fi
 
 step "Wine runner"
 if [ -x "$WINE_BIN_DIR/wine" ] && [ "$FORCE" = 0 ]; then
@@ -392,24 +449,40 @@ fi
 # resolve to different folders (a distribution's own wine64 is enough to trigger it).
 [ -e "$WINE_BIN_DIR/wine64" ] || ln -s wine "$WINE_BIN_DIR/wine64"
 
-# True when the dzn build already contains every patch of this checkout (or when that cannot
-# be told because the source tree is elsewhere).
-dzn_uptodate() {
-    local applied="${MESA_SRC:-$AEGNUX_HOME/src/mesa-25.2.8}/.aegnux-patches-applied" p
+# True when the installed Mesa component (dzn or gl) is of this checkout's patch series. A prebuilt package says
+# so in its record; a build from source is judged by the patches its Mesa tree has (or counts as current when
+# that cannot be told because the tree is elsewhere).
+mesa_uptodate() { # dzn|gl
+    local prefix rec applied p
+    if [ "$1" = dzn ]; then prefix=$DZN_PREFIX; else prefix=$AEGNUX_GL_PREFIX; fi
+    rec="$prefix/.nuxfx-prebuilt"
+    if [ -f "$rec" ]; then [ "$(sed -n 's/^series=//p' "$rec")" = "$(aegnux_series_hash)" ]; return; fi
+    [ "$1" = dzn ] || return 0
+    applied="${MESA_SRC:-$AEGNUX_HOME/src/mesa-25.2.8}/.aegnux-patches-applied"
     [ -f "$applied" ] || return 0
     for p in "$HERE"/patches/*.patch; do grep -qF "$(basename "$p")" "$applied" || return 1; done
 }
 
+# Source builds use one Mesa tree under the install folder.
+mesa_tree() {
+    fetch "$MESA_URL" "$DL/mesa-25.2.8.tar.xz" "$MESA_SHA"
+    export MESA_SRC="$AEGNUX_HOME/src/mesa-25.2.8" MESA_BUILD="$AEGNUX_HOME/src/mesa-25.2.8/build" MESA_TARBALL="$DL/mesa-25.2.8.tar.xz"
+}
+
 step "Vulkan driver (dzn)"
 if [ "$DZN" = 1 ]; then
-    if [ -f "$(aegnux_dzn_icd)" ] && [ "$FORCE" = 0 ] && dzn_uptodate; then
+    if [ -f "$(aegnux_dzn_icd)" ] && [ "$FORCE" = 0 ] && mesa_uptodate dzn; then
         good "found: $(aegnux_dzn_icd)"
     else
-        [ -f "$(aegnux_dzn_icd)" ] && note "the dzn build lacks newer patches; rebuilding it"
-        fetch "$MESA_URL" "$DL/mesa-25.2.8.tar.xz" "$MESA_SHA"
-        export MESA_SRC="$AEGNUX_HOME/src/mesa-25.2.8" MESA_BUILD="$AEGNUX_HOME/src/mesa-25.2.8/build" MESA_TARBALL="$DL/mesa-25.2.8.tar.xz"
-        say "  building Mesa (several minutes; progress is in the log)"
-        run "building dzn" "$HERE/scripts/build_dzn.sh"
+        [ -f "$(aegnux_dzn_icd)" ] && note "the installed dzn is of another patch series; replacing it"
+        if [ "$PREBUILT" = 1 ] && try_prebuilt dzn; then
+            good "installed: $(aegnux_dzn_icd)"
+        else
+            install_build_tools
+            mesa_tree
+            say "  building Mesa (several minutes; progress is in the log)"
+            run "building dzn" "$HERE/scripts/build_dzn.sh"
+        fi
     fi
 else
     good "not needed here"
@@ -419,13 +492,19 @@ step "OpenGL driver (Mesa EGL and d3d12)"
 if [ "$DZN" = 1 ]; then
     # Wine's OpenGL (After Effects' Composition panel) runs on Mesa 25.2.8 from its own prefix,
     # so it does not depend on the Mesa of the distribution (26.x left the panel empty).
-    if [ -f "$AEGNUX_GL_PREFIX/lib/libEGL.so.1" ] && [ "$FORCE" = 0 ]; then
+    if [ -f "$AEGNUX_GL_PREFIX/lib/libEGL.so.1" ] && [ "$FORCE" = 0 ] && mesa_uptodate gl; then
         good "found: $AEGNUX_GL_PREFIX"
     else
-        fetch "$MESA_URL" "$DL/mesa-25.2.8.tar.xz" "$MESA_SHA"
-        export MESA_SRC="$AEGNUX_HOME/src/mesa-25.2.8" MESA_BUILD="$AEGNUX_HOME/src/mesa-25.2.8/build" MESA_TARBALL="$DL/mesa-25.2.8.tar.xz"
-        say "  building Mesa's OpenGL driver (a few minutes; progress is in the log)"
-        run "building the OpenGL driver" "$HERE/scripts/build_gl.sh"
+        if [ "$PREBUILT" = 1 ] && try_prebuilt gl; then
+            good "installed: $AEGNUX_GL_PREFIX"
+        else
+            install_build_tools
+            mesa_tree
+            # the OpenGL stack is built from the patched tree (one patch changes src/util), as build_dzn.sh leaves it
+            AEGNUX_APPLY_PATCHES_ONLY=1 run "applying the patches to the Mesa tree" "$HERE/scripts/build_dzn.sh"
+            say "  building Mesa's OpenGL driver (a few minutes; progress is in the log)"
+            run "building the OpenGL driver" "$HERE/scripts/build_gl.sh"
+        fi
     fi
 else
     good "not needed here"

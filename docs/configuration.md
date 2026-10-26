@@ -15,8 +15,10 @@ keep the `aegnux` name (`AEGNUX_*`, `~/.local/share/aegnux`), as in
 | `AEGNUX_WAYLAND` | `auto` | `auto`: X11 when `DISPLAY` exists (XWayland on a Wayland desktop), Wine's Wayland driver only when it does not. `0`: always X11. `1`: always Wine's Wayland driver (not recommended, see [wayland.md](wayland.md)) |
 | `AEGNUX_VULKAN` | `auto` | `dzn`, `system` or `auto` (dzn on the Direct3D 12 route, the host's driver elsewhere) |
 | `AEGNUX_D3D12_LIBDIR` | `/usr/lib/wsl/lib` | Where the GPU driver of the Direct3D 12 route installs `libd3d12.so`, `libdxcore.so` and `libcuda.so.1` (`doctor.sh` and `install.sh` look there) |
-| `DZN_PREFIX` | `$AEGNUX_HOME/dzn` | dzn install, written by `build_dzn.sh` |
-| `AEGNUX_GL_PREFIX` | `$AEGNUX_HOME/mesa-gl` | Install of `scripts/build_gl.sh` (Mesa's EGL and d3d12 OpenGL driver). Used first when it exists on the Direct3D 12 route |
+| `DZN_PREFIX` | `$AEGNUX_HOME/dzn` | dzn install, written by `fetch_prebuilt.sh` (the prebuilt package) or `build_dzn.sh` |
+| `AEGNUX_GL_PREFIX` | `$AEGNUX_HOME/mesa-gl` | Install of `scripts/fetch_prebuilt.sh gl` or `scripts/build_gl.sh` (Mesa's EGL and d3d12 OpenGL driver). Used first when it exists on the Direct3D 12 route |
+| `AEGNUX_PREBUILT` | `1` | Read by `install.sh` only. `0` builds dzn and the OpenGL driver from source instead of downloading the prebuilt packages (the same as `--build-from-source`) |
+| `AEGNUX_PREBUILT_BASE_URL` | the one in `prebuilt/manifest.txt` | Read by `fetch_prebuilt.sh`: download the packages from this URL or local folder (a mirror, offline use). The SHA-256 of every package is still checked |
 | `AEGNUX_SYSTEM_GL` | `0` | `1` uses the distribution's OpenGL even when `AEGNUX_GL_PREFIX` exists |
 | `AEGNUX_REP_MOVSB` | `0` | `1` keeps glibc's `memcpy` on `rep movsb`. By default, on the Direct3D 12 route, `aegnux_env` sets a glibc tunable that avoids it: with `rep movsb` RAM preview ran at a fifth of real time |
 | `AEGNUX_DISABLE_CUDA` | `0` | `1` turns CUDA off for After Effects. It then renders in software and reports Advanced 3D as unsupported |

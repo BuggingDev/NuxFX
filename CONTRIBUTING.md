@@ -13,6 +13,11 @@ By contributing you agree that your contribution is licensed under GPL-3.0-or-la
   problem and the fix in the body.
 - Check that `scripts/build_dzn.sh` applies the whole series to a fresh Mesa tree.
 - Mesa itself is MIT-licensed. See [NOTICE](NOTICE) for what that means for these patches.
+- Users get dzn and the OpenGL driver as prebuilt packages (`prebuilt/manifest.txt`), tied to the patch
+  series by its hash, so a changed patch needs new packages: build with `build_dzn.sh` and `build_gl.sh`
+  in a fresh Mesa tree on the oldest supported system (Ubuntu 24.04), run `scripts/package_prebuilt.sh`,
+  upload the assets it writes to a release with the tag it prints, and commit the new manifest. Until
+  then the installer builds from source for that series.
 
 ## Scripts, tests and documentation
 
@@ -37,8 +42,12 @@ driver or Direct3D 12 / dzn), and the name of the AE log folder. Do not attach A
 ```
 install.sh        one-command installer
 patches/          26 patches (git format-patch) against pristine Mesa 25.2.8
+prebuilt/         manifest.txt: the prebuilt Mesa packages (release assets) with SHA-256 and patch series hash
 scripts/          build_dzn.sh          build and install dzn (Direct3D 12 route)
                   build_gl.sh           build and install Mesa's EGL and d3d12 OpenGL driver
+                  fetch_prebuilt.sh     download and install the prebuilt dzn or OpenGL package
+                  package_prebuilt.sh   package a source build as release assets and write the manifest
+                  build_layer.sh        build the optional apiVersion layer
                   launch_ae.sh          start After Effects (applies ae_prefs.sh and clear_crash_state.sh)
                   stop_ae.sh            stop After Effects and its wineserver
                   doctor.sh             read-only check of host, prefix, After Effects and tools

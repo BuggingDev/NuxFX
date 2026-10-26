@@ -61,6 +61,8 @@ ninja -C "$GL_BUILD"
 ninja -C "$GL_BUILD" install
 
 [ -f "$AEGNUX_GL_PREFIX/lib/libEGL.so.1" ] || { echo "the install has no $AEGNUX_GL_PREFIX/lib/libEGL.so.1" >&2; exit 1; }
+# A source build replaces a prebuilt package (scripts/fetch_prebuilt.sh): its record must not outlive it.
+rm -f "$AEGNUX_GL_PREFIX/.nuxfx-prebuilt"
 mkdir -p "$(dirname "$AEGNUX_CONFIG")"
 touch "$AEGNUX_CONFIG"
 sed -i '/^AEGNUX_GL_PREFIX=/d' "$AEGNUX_CONFIG"
