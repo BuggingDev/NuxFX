@@ -381,7 +381,7 @@ if [ "$PACKAGES" = 1 ]; then
     # The Vulkan loader is needed by Wine on every host; on the Direct3D 12 route the OpenGL
     # driver (Mesa's d3d12 Gallium driver) comes from the distribution's Mesa package.
     BASE+=(vulkan-loader)
-    is_d3d12_host && BASE+=(mesa-dri)
+    is_d3d12_host && [ "$DZN" != 1 ] && BASE+=(mesa-dri)
     # python3 plays the silent stream that keeps the sound server of the Direct3D 12 route awake while
     # After Effects runs (scripts/sound_keepalive.sh; pacat does it as well), otherwise RAM preview breaks.
     BASE+=(python3)
@@ -402,8 +402,14 @@ if [ "$PACKAGES" = 1 ]; then
     [ -n "$WINE_LIBS" ] && MISSING_ANY=1
     [ -n "$MESA_LIBS" ] && MISSING_ANY=1
     ldconfig -p 2> /dev/null | grep -q 'libvulkan\.so\.1' || MISSING_ANY=1
-    if is_d3d12_host; then
-        ls /usr/lib/x86_64-linux-gnu/dri/d3d12_dri.so /usr/lib64/dri/d3d12_dri.so /usr/lib/dri/d3d12_dri.so > /dev/null 2>&1 || MISSING_ANY=1
+    # The distribution's Mesa d3d12 driver is only used without the private OpenGL stack of this installer (--no-dzn).
+    # (ls with three paths fails when any one of them is missing, so each path is tested on its own.)
+    if is_d3d12_host && [ "$DZN" != 1 ]; then
+        HAVE_DRI=0
+        for f in /usr/lib/x86_64-linux-gnu/dri/d3d12_dri.so /usr/lib64/dri/d3d12_dri.so /usr/lib/dri/d3d12_dri.so; do
+            [ -e "$f" ] && HAVE_DRI=1
+        done
+        [ "$HAVE_DRI" = 1 ] || MISSING_ANY=1
     fi
     have python3 || MISSING_ANY=1
     if [ "$NEED_BUILD" = 1 ] && [ -n "$(aegnux_build_missing)" ]; then MISSING_ANY=1; fi
