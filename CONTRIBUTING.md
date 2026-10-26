@@ -41,7 +41,7 @@ driver or Direct3D 12 / dzn), and the name of the AE log folder. Do not attach A
 
 ```
 install.sh        one-command installer
-patches/          26 patches (git format-patch) against pristine Mesa 25.2.8
+patches/          27 patches (git format-patch) against pristine Mesa 25.2.8
 prebuilt/         manifest.txt: the prebuilt Mesa packages (release assets) with SHA-256 and patch series hash
 scripts/          build_dzn.sh          build and install dzn (Direct3D 12 route)
                   build_gl.sh           build and install Mesa's EGL and d3d12 OpenGL driver

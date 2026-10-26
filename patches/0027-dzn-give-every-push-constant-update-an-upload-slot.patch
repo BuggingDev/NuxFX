@@ -1,0 +1,87 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: NuxFX <nuxfx@users.noreply.github.com>
+Date: Mon, 26 Oct 2026 09:00:00 +0000
+Subject: [PATCH 27/27] dzn: give every push constant update an upload slot of
+ its own
+
+Push constants go through a root CBV (patch 8) that the GPU reads when the
+command list executes. All updates of a command buffer shared one upload slot,
+so every draw and dispatch recorded before the last update ran with the values
+of the last one. vkd3d-proton puts the root constants and the descriptor table
+offsets of every dispatch into push constants: a DirectML command list read a
+descriptor index of a later dispatch, the shader went through descriptors far
+outside the set and the GPU hung (D3D12 device removed). Roto Brush
+propagation and Content-Aware Fill never got past the Sensei initialization.
+
+A new slot is now taken whenever vkCmdPushConstants changed the values, and
+the root CBV is set to the slot of the current values on every draw and
+dispatch.
+---
+diff --git a/src/microsoft/vulkan/dzn_cmd_buffer.c b/src/microsoft/vulkan/dzn_cmd_buffer.c
+--- a/src/microsoft/vulkan/dzn_cmd_buffer.c
++++ b/src/microsoft/vulkan/dzn_cmd_buffer.c
+@@ -3541,24 +3541,32 @@
+ 
+    const size_t push_size = MAX_PUSH_CONSTANT_DWORDS * 4;
+ 
+-   if (!state->upload_res) {
++   /* The root CBV is read when the command list executes, so every change of
++    * the values needs a slot of its own: the draws and dispatches recorded
++    * before it must keep the values they were recorded with. The root CBV is
++    * set again on every call because a new root signature drops it. */
++   if (state->values_dirty || !state->upload_res) {
++      ID3D12Resource *res;
+       uint64_t offset;
+       if (dzn_cmd_buffer_alloc_internal_buf(cmdbuf, push_size,
+                                             DZN_INTERNAL_BUF_UPLOAD,
+                                             D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER,
+                                             D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT,
+-                                            &state->upload_res, &offset) != VK_SUCCESS)
++                                            &res, &offset) != VK_SUCCESS)
+          return;
+-      state->upload_offset = offset;
+-   }
+ 
+-   void *map = NULL;
+-   if (FAILED(ID3D12Resource_Map(state->upload_res, 0, NULL, &map))) {
+-      vk_command_buffer_set_error(&cmdbuf->vk, VK_ERROR_OUT_OF_HOST_MEMORY);
+-      return;
++      void *map = NULL;
++      if (FAILED(ID3D12Resource_Map(res, 0, NULL, &map))) {
++         vk_command_buffer_set_error(&cmdbuf->vk, VK_ERROR_OUT_OF_HOST_MEMORY);
++         return;
++      }
++      memcpy(map + offset, state->values, push_size);
++      ID3D12Resource_Unmap(res, 0, NULL);
++
++      state->upload_res = res;
++      state->upload_offset = offset;
++      state->values_dirty = false;
+    }
+-   memcpy(map + state->upload_offset, state->values, push_size);
+-   ID3D12Resource_Unmap(state->upload_res, 0, NULL);
+ 
+    D3D12_GPU_VIRTUAL_ADDRESS addr =
+       ID3D12Resource_GetGPUVirtualAddress(state->upload_res) + state->upload_offset;
+@@ -5322,6 +5330,7 @@
+       states[i]->offset =
+          states[i]->end > 0 ? MIN2(states[i]->offset, offset) : offset;
+       states[i]->end = MAX2(states[i]->end, offset + size);
++      states[i]->values_dirty = true;
+    }
+ }
+ 
+diff --git a/src/microsoft/vulkan/dzn_private.h b/src/microsoft/vulkan/dzn_private.h
+--- a/src/microsoft/vulkan/dzn_private.h
++++ b/src/microsoft/vulkan/dzn_private.h
+@@ -562,6 +562,7 @@
+    uint32_t values[MAX_PUSH_CONSTANT_DWORDS];
+    ID3D12Resource *upload_res;
+    uint64_t upload_offset;
++   bool values_dirty;
+ };
+ 
+ struct dzn_rendering_attachment {
+-- 
+2.43.0
+

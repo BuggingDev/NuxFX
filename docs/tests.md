@@ -20,6 +20,7 @@ tests/run_pulse_resume_test.sh     # the sound server resumes a stream created c
 tests/run_ae_text_test.sh          # a new text layer gets a font with letters (Myriad Pro, After Effects' default)
 tests/run_ae_effects_test.sh       # 40 common effects render in CUDA and in software mode
 tests/run_push_descriptor_test.sh  # dzn push descriptors reach a compute shader (patch 20)
+tests/run_push_constants_test.sh   # 16 dispatches of one command buffer each read the push constants set before them (patch 27)
 tests/run_descriptor_features_test.sh  # null buffer descriptors and inline uniform blocks on the Vulkan device
 tests/run_robustness_test.sh       # out-of-range buffer and image accesses, null images and texel buffers (patch 22)
 tests/run_xfb_stub_test.sh         # dzn warns once that transform feedback is not implemented (patch 23)
@@ -39,7 +40,7 @@ scripts/gpu_sniffer_test.sh        # dzn entrypoint audit, then After Effects' G
   windows on your current display.)
 - Packages: `xdotool`, `xwininfo` (`x11-utils`), `xvfb`, `python3` and `gcc` with X11 headers; the
   Windows test programs need `x86_64-w64-mingw32-gcc`; the tests that build a native Vulkan program
-  (push descriptors, descriptor features, robustness, transform feedback, semaphores, GPUSniffer) need the
+  (push descriptors, push constants, descriptor features, robustness, transform feedback, semaphores, GPUSniffer) need the
   Vulkan headers (`libvulkan-dev`) and `glslangValidator`; the Wayland test needs `Xwayland` and, for
   sway, `sway` and `grim`, for KWin `kwin_wayland`, `dbus-run-session`, `spectacle` and ImageMagick.
   `scripts/doctor.sh` prints the install command for your distribution. On openSUSE's image for
@@ -145,6 +146,9 @@ scripts/gpu_sniffer_test.sh        # dzn entrypoint audit, then After Effects' G
   `run_descriptor_features_test.sh` checks which descriptor features the Vulkan device supports:
   null buffer descriptors work, inline uniform blocks do not (dzn advertises them but does not
   implement them; DXVK and vkd3d-proton never allocate one).
+- `run_push_constants_test.sh` (no Wine, no After Effects) records 16 dispatches in one command buffer, each
+  after its own `vkCmdPushConstants`, and checks that each writes its own value. Before patch 27 dzn gave
+  every dispatch the values of the last one (1 of 16 correct).
 - `run_robustness_test.sh` (no Wine, no After Effects) runs five compute shaders, each as its own
   process, for the VK_EXT_robustness2 behaviour that DXVK and vkd3d-proton rely on for Direct3D's
   out-of-range rules: a storage and a uniform buffer descriptor whose range is smaller than the

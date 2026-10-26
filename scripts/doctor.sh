@@ -115,6 +115,10 @@ if [ "$MODE" = dzn ]; then
                 warn "dzn: $LIB is a prebuilt package of another patch series than this checkout's; run ./install.sh to replace it"
             else
                 ok "dzn: $LIB (built from source)"
+                # a tree that was patched by build_dzn.sh lists its patches
+                if [ -s "$MESA_SRC/.aegnux-patches-applied" ] && ! grep -q '0027-dzn-give-every-push-constant' "$MESA_SRC/.aegnux-patches-applied"; then
+                    warn "dzn was built without patch 27 (the push constants of all dispatches of a command list share one slot): Roto Brush propagation and Content-Aware Fill hang the GPU; run ./install.sh to update it (or rebuild with scripts/build_dzn.sh in a fresh Mesa tree)"
+                fi
             fi
             # Patch 21 names its memfd "dzn-timeline-semaphore"; the string is in the library.
             if grep -aq 'dzn-timeline-semaphore' "$LIB"; then

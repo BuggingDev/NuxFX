@@ -53,7 +53,8 @@ skipped when you run it again. Options: `./install.sh --help`. Update: `git pull
 | RAM preview | Works: real-time playback with sound, and as in After Effects itself the blue playhead stays put while a red preview-time needle follows the picture and the playhead jumps to the stop frame |
 | Warp Stabilizer VFX | Works |
 | Import, export, expressions | Work: H.264 (MP4 with audio), AVI, AIFF and TIFF sequence export; PNG, JPEG, TIFF, PSD, EXR, ProRes, HEVC, WAV and MP3 import; expressions; saving and reopening projects |
-| Roto Brush | A stroke makes the matte of its frame; propagating it to other frames, and Content-Aware Fill, do not finish ([known issues](docs/known-issues.md)) |
+| Roto Brush | Works: a stroke makes the matte of its frame and it propagates to the other frames (about 3.5 s per frame on an RTX 4060 Ti) |
+| Content-Aware Fill | Writes the fill frames (15 frames in about a minute), but After Effects then stays in the generate step and does not answer ([known issues](docs/known-issues.md)) |
 | Cinema 4D renderer | Does not work |
 
 Verified on Ubuntu 24.04, Debian 13, Fedora 44, Arch Linux and openSUSE Tumbleweed, with Wine TkG
@@ -142,8 +143,8 @@ More: [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ### What does not work yet?
 
-The Cinema 4D renderer (it needs Maxon's `cineware.dll`), Roto Brush propagation and Content-Aware
-Fill, sharing images between CUDA and Direct3D, and imported 3D models (not tested). AMD and Intel GPUs and bare hardware were not tested.
+The Cinema 4D renderer (it needs Maxon's `cineware.dll`), the end of Content-Aware Fill (the frames are
+written, After Effects does not return), sharing images between CUDA and Direct3D, and imported 3D models (not tested). AMD and Intel GPUs and bare hardware were not tested.
 The full list: [docs/known-issues.md](docs/known-issues.md).
 
 ## Documentation

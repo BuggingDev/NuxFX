@@ -286,3 +286,35 @@ Side findings of the same work:
 - An earlier note said that shared D3D11 textures were not coherent between two devices. The test
   cleared the texture with `ClearRenderTargetView`, which DXVK keeps back until the image is used on
   the same device. With `UpdateSubresource`, a draw or a copy the second device reads the data.
+
+## 13. Roto Brush propagation and Content-Aware Fill (October 2026)
+
+Symptom: after a Roto Brush stroke the panel said "Roto Brush 3 initializing Adobe Sensei propagation
+module" for ever. The Wine log had `vkd3d-proton: Device ... is lost (reason 0x887a0005,
+"VK_ERROR_DEVICE_LOST")`, the host's Direct3D 12 runtime printed "D3D12: Removing Device.", and the
+Windows event log held three `nvlddmkm` events (153) two seconds apart for every attempt: the GPU hung.
+These features run ONNX Runtime's DirectML provider, the one workload of After Effects that uses
+Direct3D 12 (through vkd3d-proton and dzn).
+
+1. A run with only the stroke made no Direct3D 12 call at all; the work starts with the propagation or
+   with Content-Aware Fill. DirectML records its operators in command lists of 80 dispatches and more.
+2. A temporary trace in dzn (not in the series) gave a hash and a dump (SPIR-V, DXIL) of every compute
+   pipeline, a line for every dispatch with its push constants, a marker that the GPU writes to system
+   memory after every dispatch (`WriteBufferImmediate`, mode `MARKER_OUT`) and a thread that reports a
+   queue whose fence has not moved for 1.2 s, with the last marker. It named dispatch 277: a ReduceMax over
+   512 x 1024 half floats, the 39th dispatch of its command list. The same shader had run before, in
+   another command list, with the same push constants except for one dword: the index of its descriptors.
+3. A UAV barrier after every dispatch changed nothing and the descriptor entries of that index were
+   valid when the list was submitted. dzn's push constants (patch 8) went into one upload slot per
+   command buffer, and the root CBV that points at it is read when the command list executes, so every
+   dispatch of a list ran with the push constants of the last one. The last dispatch of that list was
+   an element-wise operator whose dword at the reduction's descriptor index is 0x50000000: the reduction
+   indexed its descriptors 1.3 billion entries out of range and the GPU faulted.
+4. Fix (patch 27): a new slot whenever `vkCmdPushConstants` changed the values.
+   `tests/run_push_constants_test.sh` records 16 dispatches, each after its own push constants: 1 of 16
+   wrote the right value before the patch, 16 of 16 after it.
+
+Result: the propagation runs (119 frames in about 7 minutes, mostly on the CPU: ONNX Runtime's intra-op
+threads) and Content-Aware Fill writes its fill frames. After that the main thread of After Effects loops
+in code of its own (a modal progress loop that polls the mouse and allocates small objects), the panel
+stays at "Initializing FastMask2ImgEncoder", scripts get no answer, and no thread is busy: not solved.
