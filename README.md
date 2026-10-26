@@ -24,7 +24,7 @@ Adobe's licensing: bring your own licensed copy of After Effects 2024.
 ```sh
 git clone https://github.com/chunsal/NuxFX.git
 cd NuxFX
-./install.sh            # asks a few questions, then installs everything (10 to 15 minutes)
+./install.sh            # asks a few questions, then installs everything (a few minutes, nothing is compiled)
 scripts/launch_ae.sh    # or start "After Effects (NuxFX)" from your application menu
 ```
 
@@ -51,6 +51,9 @@ skipped when you run it again. Options: `./install.sh --help`. Update: `git pull
 | 40 common effects, rendered with CUDA and in software | Work |
 | X11 and Wayland sessions | Work (Wayland through XWayland; tested on KDE Plasma's KWin and on sway) |
 | RAM preview | Works: real-time playback with sound, and as in After Effects itself the blue playhead stays put while a red preview-time needle follows the picture and the playhead jumps to the stop frame |
+| Warp Stabilizer VFX | Works |
+| Import, export, expressions | Work: H.264 (MP4 with audio), AVI, AIFF and TIFF sequence export; PNG, JPEG, TIFF, PSD, EXR, ProRes, HEVC, WAV and MP3 import; expressions; saving and reopening projects |
+| Roto Brush | A stroke makes the matte of its frame; propagating it to other frames, and Content-Aware Fill, do not finish ([known issues](docs/known-issues.md)) |
 | Cinema 4D renderer | Does not work |
 
 Verified on Ubuntu 24.04, Debian 13, Fedora 44, Arch Linux and openSUSE Tumbleweed, with Wine TkG
@@ -139,8 +142,8 @@ More: [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ### What does not work yet?
 
-The Cinema 4D renderer (it needs Maxon's `cineware.dll`), sharing images between CUDA and
-Direct3D, and imported 3D models (not tested). AMD and Intel GPUs and bare hardware were not tested.
+The Cinema 4D renderer (it needs Maxon's `cineware.dll`), Roto Brush propagation and Content-Aware
+Fill, sharing images between CUDA and Direct3D, and imported 3D models (not tested). AMD and Intel GPUs and bare hardware were not tested.
 The full list: [docs/known-issues.md](docs/known-issues.md).
 
 ## Documentation
