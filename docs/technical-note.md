@@ -314,7 +314,12 @@ Direct3D 12 (through vkd3d-proton and dzn).
    `tests/run_push_constants_test.sh` records 16 dispatches, each after its own push constants: 1 of 16
    wrote the right value before the patch, 16 of 16 after it.
 
-Result: the propagation runs (119 frames in about 7 minutes, mostly on the CPU: ONNX Runtime's intra-op
-threads) and Content-Aware Fill writes its fill frames. After that the main thread of After Effects loops
-in code of its own (a modal progress loop that polls the mouse and allocates small objects), the panel
-stays at "Initializing FastMask2ImgEncoder", scripts get no answer, and no thread is busy: not solved.
+Result: the propagation runs (15 frames in about a minute, 119 frames in about 7 minutes). The trace shows
+no dispatch after DirectML's initialization (318 in all), so the propagation itself does not use the GPU.
+Content-Aware Fill writes its 15 fill frames (a `Fills` folder next to the project) in
+about a minute, and the composition shows the object removed. The Content-Aware Fill panel keeps the
+text "Initializing FastMask2ImgEncoder" (the name of the first model it loads).
+
+A trap for test scripts: the window keeps working after Freeze or Content-Aware Fill, but a script that
+polls a file through `app.scheduleTask` stops getting answers (the modal progress of those commands ends the
+task). A session that looks hung because of that answers a click on a menu; check the window, not the script.
