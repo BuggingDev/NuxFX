@@ -530,10 +530,21 @@ aegnux_env
 SYS32="$WINEPREFIX/drive_c/windows/system32"
 SYS64="$WINEPREFIX/drive_c/windows/syswow64"
 
+# A prefix whose creation was interrupted (Ctrl+C) has its registry files but not all of its DLLs, and wineboot cannot repair
+# that ("wine: could not load kernel32.dll"): such a prefix is moved aside and made again.
+prefix_complete() {
+    [ -f "$WINEPREFIX/system.reg" ] && [ -f "$WINEPREFIX/drive_c/windows/system32/kernel32.dll" ] \
+        && [ -f "$WINEPREFIX/drive_c/windows/syswow64/kernel32.dll" ]
+}
+
 step "Wine prefix"
-if [ -f "$WINEPREFIX/system.reg" ] && [ "$FORCE" = 0 ]; then
+if prefix_complete && [ "$FORCE" = 0 ]; then
     good "found: $WINEPREFIX"
 else
+    if [ -n "$(ls -A "$WINEPREFIX" 2> /dev/null)" ] && ! prefix_complete; then
+        UNFINISHED="$WINEPREFIX.unfinished-$(date +%Y%m%d_%H%M%S)"
+        mv "$WINEPREFIX" "$UNFINISHED" && note "the prefix was incomplete (an interrupted install?); it is kept as $UNFINISHED"
+    fi
     mkdir -p "$WINEPREFIX"
     run "creating the prefix" wineboot -i
     run "setting Windows 10" wine reg add 'HKCU\Software\Wine' /v Version /d win10 /f
