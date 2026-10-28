@@ -56,6 +56,10 @@ done
 # Wine TkG staging: 11.12 for After Effects 24.6; After Effects 26 and newer get 11.17 (set below, once the version is known)
 WINE_VER=11.12
 WINE_SHA=5cf2bcee41ae2c926c8fade6297d5c0c3e9cbe1d1f0a77d69197d739af805e59
+# Microsoft's Visual C++ 14.44 redistributable (the address holds the file's SHA-256): After Effects 26 and newer get the
+# vcruntime140_1.dll of it (AEGNUX_VCRUNTIME140_1_SHA in scripts/common.sh), see the step "C++ exception handling".
+VCR_URL="https://download.visualstudio.microsoft.com/download/pr/990c720a-46ce-4dc7-87b9-c2eb615d34b9/CC0FF0EB1DC3F5188AE6300FAEF32BF5BEEBA4BDD6E8E445A9184072096B713B/VC_redist.x64.exe"
+VCR_SHA=cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b
 DXVK_URL="https://github.com/doitsujin/dxvk/releases/download/v3.0.1/dxvk-3.0.1.tar.gz"
 DXVK_SHA=bebb6284db590535b7b005c102ebf6850c98842cff0fded9aacb74babae14c49
 VKD3D_URL="https://github.com/HansKristian-Work/vkd3d-proton/releases/download/v3.0.1/vkd3d-proton-3.0.1.tar.zst"
@@ -290,7 +294,7 @@ ask_yn "Start the installation?" y || { say "cancelled"; exit 1; }
 mkdir -p "$AEGNUX_HOME/downloads" "$AEGNUX_LOG_DIR"
 LOG="$AEGNUX_LOG_DIR/install_$(date +%Y%m%d_%H%M%S).log"
 say "  log: $LOG"
-STEP=0; TOTAL=13
+STEP=0; TOTAL=14
 step() { STEP=$((STEP + 1)); head1 "[$STEP/$TOTAL] $*"; }
 # run DESCRIPTION CMD...: output goes to the log; on failure the tail is shown
 run() {
@@ -677,6 +681,34 @@ elif [ -n "$ADC_SRC" ]; then
 else
     note "After Effects $AE_V needs the folder \"$ADC_REL\" of your Windows installation and it was not found next to the After Effects folder"
     say "         run again with --windows DIR (DIR holds \"Program Files\"), or copy that folder to $ADC_DST"
+fi
+
+step "C++ exception handling"
+# Wine's builtin vcruntime140_1.dll mishandles the C++ exceptions of After Effects 26's Photoshop engine: the Render Queue
+# could not write TIFF and Photoshop files, and Vibrance and Brightness & Contrast (software mode) returned empty frames.
+# winetricks' vcrun2022 does not help, its setup leaves Wine's builtin file in place. Microsoft's file next to AfterFX.exe
+# is loaded instead (only After Effects 26 and newer; After Effects 24 is left as it was tested).
+extract_vcruntime140_1() { # VC_redist.x64.exe -> $AE_DIR/vcruntime140_1.dll
+    local t
+    t=$(mktemp -d) || return 1
+    # cabextract warns about extra bytes at the end of the cabinet; the hash of the file decides
+    cabextract -q -d "$t" -F a12 "$DL/vc_redist.x64.exe" || true
+    cabextract -q -d "$t" -F vcruntime140_1.dll_amd64 "$t/a12" || true
+    if [ "$(sha256sum "$t/vcruntime140_1.dll_amd64" 2> /dev/null | cut -c1-64)" != "$AEGNUX_VCRUNTIME140_1_SHA" ]; then
+        rm -rf "$t"
+        echo "vcruntime140_1.dll of the expected build was not found in the download"
+        return 1
+    fi
+    install -m 755 "$t/vcruntime140_1.dll_amd64" "$AE_DIR/vcruntime140_1.dll"
+    rm -rf "$t"
+}
+if [ "$AE_MAJOR" -lt 26 ]; then
+    good "not needed for this After Effects version"
+elif [ "$(sha256sum "$AE_DIR/vcruntime140_1.dll" 2> /dev/null | cut -c1-64)" = "$AEGNUX_VCRUNTIME140_1_SHA" ] && [ "$FORCE" = 0 ]; then
+    good "found: $AE_DIR/vcruntime140_1.dll"
+else
+    fetch "$VCR_URL" "$DL/vc_redist.x64.exe" "$VCR_SHA"
+    run "unpacking vcruntime140_1.dll" extract_vcruntime140_1
 fi
 
 step "Plugins and extensions"

@@ -102,6 +102,11 @@ if [ -f "$AE_DIR/AfterFX.exe" ]; then
                 ok "Adobe Desktop Common is in the prefix"
             else
                 warn "Adobe Desktop Common is not in the prefix (After Effects 26 and newer need it; ./install.sh --windows DIR copies it)"
+            fi
+            if [ "$(sha256sum "$AE_DIR/vcruntime140_1.dll" 2> /dev/null | cut -c1-64)" = "$AEGNUX_VCRUNTIME140_1_SHA" ]; then
+                ok "C++ exception handling: Microsoft's vcruntime140_1.dll is next to AfterFX.exe"
+            else
+                warn "vcruntime140_1.dll of the Visual C++ 14.44 runtime is not next to AfterFX.exe: TIFF and Photoshop output, Vibrance and Brightness & Contrast (software mode) fail without it; run ./install.sh to add it"
             fi ;;
     esac
 else

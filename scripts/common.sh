@@ -48,6 +48,10 @@ AEGNUX_VULKAN="${AEGNUX_VULKAN:-auto}"
 # Where the GPU driver of the Direct3D 12 route installs its user-space libraries (libd3d12.so,
 # libdxcore.so and libcuda.so.1).
 AEGNUX_D3D12_LIBDIR="${AEGNUX_D3D12_LIBDIR:-/usr/lib/wsl/lib}"
+# After Effects 26 and newer run with Microsoft's vcruntime140_1.dll (C++ exception handling) next to AfterFX.exe: Wine's
+# own mishandles the C++ exceptions of the Photoshop engine (TIFF and Photoshop output, Vibrance and Brightness & Contrast in
+# software mode failed). SHA-256 of the file in Microsoft's Visual C++ 14.44 redistributable (install.sh unpacks it).
+AEGNUX_VCRUNTIME140_1_SHA=1f2d41c4aa5db0bc33ebf7b66d72943a817d7ce6cbe880502a9403823633093f
 
 export AEGNUX_CONFIG AEGNUX_HOME WINE_BIN_DIR WINEPREFIX AE_DIR MESA_SRC MESA_BUILD
 export DZN_PREFIX AEGNUX_GL_PREFIX AEGNUX_LAYER_DIR AEGNUX_LOG_DIR AEGNUX_TEST_DIR AEGNUX_VULKAN AEGNUX_D3D12_LIBDIR AEGNUX_AUDIO_RUN

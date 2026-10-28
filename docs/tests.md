@@ -145,7 +145,7 @@ scripts/gpu_sniffer_test.sh        # dzn entrypoint audit, then After Effects' G
   picture and how far the two modes differ. About 8 minutes.
 - `run_ae_features_test.sh` does what a user does: it imports files made with ffmpeg (H.264 with AAC, HEVC, ProRes, PNG,
   JPEG, TIFF, PSD, EXR, WAV, MP3), evaluates an expression, saves the project and opens it again, and renders a comp through
-  the Render Queue into Lossless AVI, H.264 MP4 with AAC and AIFF (and, before After Effects 26, a TIFF sequence). The files
+  the Render Queue into Lossless AVI, H.264 MP4 with AAC, AIFF and a TIFF sequence. The files
   are read back with ffprobe and ffmpeg: codec, length, frame count, a frame that is not one colour. About 3 minutes.
 - `run_push_descriptor_test.sh` checks that push descriptors reach a compute shader.
   `run_descriptor_features_test.sh` checks which descriptor features the Vulkan device supports:

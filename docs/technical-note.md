@@ -323,3 +323,27 @@ text "Initializing FastMask2ImgEncoder" (the name of the first model it loads).
 A trap for test scripts: the window keeps working after Freeze or Content-Aware Fill, but a script that
 polls a file through `app.scheduleTask` stops getting answers (the modal progress of those commands ends the
 task). A session that looks hung because of that answers a click on a menu; check the window, not the script.
+
+## 14. After Effects 26: TIFF and Photoshop output, Vibrance, Brightness & Contrast (October 2026)
+
+Symptom (26.5): the Render Queue stopped a TIFF or PSD sequence with "The Photoshop Library operation failed because of a
+program error" (error code 14) and left a 0-byte file; Vibrance rendered a transparent frame (CUDA and software) and so did
+Brightness & Contrast in software mode (CUDA mode was right). All of it is code of `AdobePIE.dll`, the Photoshop imaging
+engine. The engine had made an image whose layer list was empty and then asked for layer 0. Nothing in the Wine log: no
+`err` line, no missing function.
+
+1. Not the cause (all tried on 26.5): Mercury Software Only, the DirectX and OpenGL display, a colour managed project,
+   Windows 11 as the reported version.
+2. The C++ runtime. `msvcp140.dll`, `vcruntime140.dll`, `vcruntime140_1.dll` and four more come with Wine as builtin
+   copies. With Microsoft's copies of all eight next to `AfterFX.exe` (and `WINEDLLOVERRIDES=...=n,b`) a PSD sequence and
+   a TIFF sequence were written (60 of 60 frames), Vibrance rendered and Brightness & Contrast in software mode gave the
+   CUDA result (6, 163, 254 on the test gradient).
+3. Narrowing down (PSD sequence, 60 frames): `msvcp140` alone gave 1 frame of 0 bytes, `vcruntime140` alone the same,
+   `vcruntime140_1` alone 60 of 60 frames. `vcruntime140_1.dll` holds the 64-bit C++ exception handler of Visual C++ 14.3 and
+   newer; the engine's code needs it to work as it does on Windows. No override is needed: a file with that name in the
+   folder of `AfterFX.exe` is loaded before Wine's builtin.
+4. winetricks' `vcrun2022` does not help: after it the prefix still has Wine's 99,805-byte `vcruntime140_1.dll` in `system32`.
+5. Fix: `install.sh` (step "C++ exception handling") downloads Microsoft's Visual C++ 14.44 redistributable (the address and
+   the SHA-256 are pinned), takes `vcruntime140_1.dll` out of its cabinet with `cabextract` (checks that file's SHA-256 too) and
+   puts it next to `AfterFX.exe`. Only for After Effects 26 and newer; `scripts/doctor.sh` checks for it.
+   Result: `tests/run_ae_features_test.sh` renders its TIFF sequence again (26 steps pass on 26.5).
