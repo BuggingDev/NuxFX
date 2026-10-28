@@ -1,0 +1,36 @@
+From: NuxFX <nuxfx@users.noreply.github.com>
+Subject: [PATCH] d2d1: Let EndDraw() finish drawing to a command list.
+
+ID2D1DeviceContext::EndDraw() on a device context whose target is a command list returned E_NOTIMPL, so a program
+that records into a command list (Adobe's Drawbot library does) saw every recording fail, although BeginDraw() and
+all the drawing calls are recorded already. EndDraw() now returns the error that the recording collected (S_OK
+when there was none), like it does for the other targets; there is nothing to present.
+
+Against wine-11.17 (the same code is in 11.18 to 11.20 and in master). scripts/patch_wine_d2d1.sh makes this change
+in the d2d1.dll of the pinned runner build.
+---
+diff --git a/dlls/d2d1/device.c b/dlls/d2d1/device.c
+--- a/dlls/d2d1/device.c
++++ b/dlls/d2d1/device.c
+@@ -2070,17 +2070,15 @@ static HRESULT STDMETHODCALLTYPE d2d_device_context_EndDraw(ID2D1DeviceContext6
+
+     TRACE("iface %p, tag1 %p, tag2 %p.\n", iface, tag1, tag2);
+
+-    if (context->target.type == D2D_TARGET_COMMAND_LIST)
+-    {
+-        FIXME("Unimplemented for command list target.\n");
+-        return E_NOTIMPL;
+-    }
+-
+     if (tag1)
+         *tag1 = context->error.tag1;
+     if (tag2)
+         *tag2 = context->error.tag2;
+
++    /* The commands were recorded as they were drawn; the command list is closed by its own Close(). */
++    if (context->target.type == D2D_TARGET_COMMAND_LIST)
++        return context->error.code;
++
+     if (context->ops && context->ops->device_context_present)
+     {
+         if (FAILED(hr = context->ops->device_context_present(context->outer_unknown)))

@@ -479,6 +479,10 @@ else
     run "unpacking the runner" tar -xJf "$DL/wine-$WINE_VER.tar.xz" -C "$AEGNUX_HOME/runner" --strip-components=1
     [ -x "$WINE_BIN_DIR/wine" ] || die "the runner has no bin/wine in $WINE_BIN_DIR"
 fi
+# Wine's Direct2D answers EndDraw() on a command list target with E_NOTIMPL, which After Effects 26 shows as a box
+# "Direct2D Drawbot error" (patches-wine/, scripts/patch_wine_d2d1.sh makes the change in the pinned runner build).
+D2D_OUT=$("$HERE/scripts/patch_wine_d2d1.sh" 2>&1); D2D_RC=$?
+if [ "$D2D_RC" = 0 ]; then good "$D2D_OUT"; else note "$D2D_OUT"; fi
 # vkd3d-proton's installer and winetricks ask which Wine to use when "wine" and "wine64"
 # resolve to different folders (a distribution's own wine64 is enough to trigger it).
 [ -e "$WINE_BIN_DIR/wine64" ] || ln -s wine "$WINE_BIN_DIR/wine64"

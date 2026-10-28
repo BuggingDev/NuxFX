@@ -83,6 +83,14 @@ if [ -x "$WINE_BIN_DIR/wine" ]; then
 else
     fail "no Wine runner at $WINE_BIN_DIR (set WINE_BIN_DIR)"
 fi
+if [ -x "$WINE_BIN_DIR/wine" ]; then
+    D2D_OUT=$("$AEGNUX_SCRIPTS_DIR/patch_wine_d2d1.sh" --check 2>&1); D2D_RC=$?
+    case "$D2D_RC" in
+        0) ok "Direct2D: EndDraw for command lists works (patches-wine/)" ;;
+        4) warn "Direct2D: Wine's d2d1.dll still answers EndDraw for command lists with E_NOTIMPL; After Effects 26 then shows a 'Direct2D Drawbot error' box: ./install.sh applies the fix" ;;
+        *) warn "Direct2D: $D2D_OUT" ;;
+    esac
+fi
 if [ -f "$WINEPREFIX/system.reg" ]; then ok "prefix: $WINEPREFIX"; else fail "no Wine prefix at $WINEPREFIX (set WINEPREFIX)"; fi
 if grep -aq '^"RelayExclude"' "$WINEPREFIX/user.reg" 2> /dev/null; then warn "the prefix has a RelayExclude list (wine.inf): relay traces hide the critical-section calls; remove it from HKCU\Software\Wine\Debug to see them"; fi
 if [ -f "$AE_DIR/AfterFX.exe" ]; then
