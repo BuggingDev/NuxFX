@@ -87,6 +87,15 @@ if [ -f "$WINEPREFIX/system.reg" ]; then ok "prefix: $WINEPREFIX"; else fail "no
 if grep -aq '^"RelayExclude"' "$WINEPREFIX/user.reg" 2> /dev/null; then warn "the prefix has a RelayExclude list (wine.inf): relay traces hide the critical-section calls; remove it from HKCU\Software\Wine\Debug to see them"; fi
 if [ -f "$AE_DIR/AfterFX.exe" ]; then
     ok "After Effects: $AE_DIR (version ${AE_VERSION:-$(aegnux_ae_version)}; tested: 24.6)"
+    # After Effects 26 and newer start Adobe's NGL program and its browser (CEF) from Adobe Desktop Common
+    case "$(aegnux_ae_version | cut -d. -f1)" in
+        2[6-9]|[3-9][0-9])
+            if [ -d "$WINEPREFIX/drive_c/Program Files/Common Files/Adobe/Adobe Desktop Common/NGL" ]; then
+                ok "Adobe Desktop Common is in the prefix"
+            else
+                warn "Adobe Desktop Common is not in the prefix (After Effects 26 and newer need it; ./install.sh --windows DIR copies it)"
+            fi ;;
+    esac
 else
     fail "AfterFX.exe not found in $AE_DIR (set AE_DIR)"
 fi

@@ -10,6 +10,8 @@
 #     -y, --yes            take every default (needs an After Effects folder it can find,
 #                          or --ae-dir)
 #     --ae-dir DIR         After Effects "Support Files" folder (the one with AfterFX.exe)
+#     --windows DIR        folder that holds "Program Files" of your Windows installation (After Effects 26 and
+#                          newer also need its "Adobe Desktop Common"; found by itself next to --ae-dir)
 #     --plugins DIR        folder of .aex plugins to import (repeatable)
 #     --extensions DIR     folder of CEP extensions to import (repeatable)
 #     --home DIR           install folder (default ~/.local/share/aegnux)
@@ -25,11 +27,12 @@ set -u
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 YES=0; DRY=0; FORCE=0; PACKAGES=1; CUDA=1; DZN=auto; PREBUILT=1
-OPT_HOME=""; OPT_AE=""; PLUGIN_DIRS=(); EXT_DIRS=()
+OPT_HOME=""; OPT_AE=""; OPT_WIN=""; PLUGIN_DIRS=(); EXT_DIRS=()
 while [ $# -gt 0 ]; do
     case "$1" in
         -y|--yes) YES=1 ;;
         --ae-dir) OPT_AE=${2:-}; shift ;;
+        --windows) OPT_WIN=${2:-}; shift ;;
         --plugins) PLUGIN_DIRS+=("${2:-}"); shift ;;
         --extensions) EXT_DIRS+=("${2:-}"); shift ;;
         --home) OPT_HOME=${2:-}; shift ;;
@@ -39,7 +42,7 @@ while [ $# -gt 0 ]; do
         --build-from-source) PREBUILT=0 ;;
         --force) FORCE=1 ;;
         --dry-run) DRY=1 ;;
-        -h|--help) sed -n '5,23p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '5,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
     esac
     shift
@@ -186,6 +189,19 @@ AE_V=$(ae_version_of "$AE_SRC")
 good "After Effects folder: $AE_SRC (version ${AE_V:-unknown})"
 case "$AE_V" in 24.6*) ;; *) note "only 24.6.x was tested; other versions may not start" ;; esac
 
+# After Effects 26 and newer start Adobe's NGL program and its browser (CEF) from "Adobe Desktop Common" (a folder of
+# the Windows installation, not of After Effects). It sits under the Windows root of the After Effects folder.
+AE_MAJOR=${AE_V%%.*}
+case "$AE_MAJOR" in ''|*[!0-9]*) AE_MAJOR=0 ;; esac
+ADC_REL="Program Files/Common Files/Adobe/Adobe Desktop Common"
+ADC_DST="$WINEPREFIX/drive_c/$ADC_REL"
+ADC_SRC=""
+if [ "$AE_MAJOR" -ge 26 ]; then
+    WIN_ROOT=$OPT_WIN
+    case "$AE_SRC" in */"Program Files/Adobe/"*) [ -n "$WIN_ROOT" ] || WIN_ROOT=${AE_SRC%/Program Files/Adobe/*} ;; esac
+    if [ -n "$WIN_ROOT" ] && [ -d "$WIN_ROOT/$ADC_REL/NGL" ]; then ADC_SRC="$WIN_ROOT/$ADC_REL"; fi
+fi
+
 head1 "2. Plugins and extensions (optional)"
 say "  Where they go inside the Wine prefix:"
 PLUG_DEST="$WINEPREFIX/drive_c/Program Files/Adobe/Common/Plug-ins/7.0/MediaCore"
@@ -242,6 +258,9 @@ if [ "$PACKAGES" = 1 ] && [ "$MAPS" -lt 1048576 ] 2> /dev/null; then RAISE_MAPS=
 head1 "Plan"
 say "  Install folder    $AEGNUX_HOME"
 say "  After Effects     $AE_SRC"
+if [ "$AE_MAJOR" -ge 26 ]; then
+    say "  Desktop Common    ${ADC_SRC:-not found (pass --windows DIR)}"
+fi
 say "  System packages   $([ "$PACKAGES" = 1 ] && echo yes || echo skipped)"
 say "  Memory mappings   $([ "$RAISE_MAPS" = 1 ] && echo "vm.max_map_count $MAPS, raised to 1048576 (sudo, /etc/sysctl.d/99-nuxfx.conf)" || echo "vm.max_map_count $MAPS, left alone")"
 say "  Wine runner       $WINE_VER (Wine TkG staging, checked by SHA-256)"
@@ -266,7 +285,7 @@ ask_yn "Start the installation?" y || { say "cancelled"; exit 1; }
 mkdir -p "$AEGNUX_HOME/downloads" "$AEGNUX_LOG_DIR"
 LOG="$AEGNUX_LOG_DIR/install_$(date +%Y%m%d_%H%M%S).log"
 say "  log: $LOG"
-STEP=0; TOTAL=12
+STEP=0; TOTAL=13
 step() { STEP=$((STEP + 1)); head1 "[$STEP/$TOTAL] $*"; }
 # run DESCRIPTION CMD...: output goes to the log; on failure the tail is shown
 run() {
@@ -628,6 +647,24 @@ if [ -f "$AE_DIR/CEPHtmlEngine/d3dcompiler_47.dll" ]; then
     run "Adobe's d3dcompiler_47 for Advanced 3D" cp "$AE_DIR/CEPHtmlEngine/d3dcompiler_47.dll" "$SYS32/d3dcompiler_47.dll"
 else
     note "CEPHtmlEngine/d3dcompiler_47.dll not found: Advanced 3D needs it"
+fi
+
+step "Adobe Desktop Common"
+if [ "$AE_MAJOR" -lt 26 ]; then
+    good "not needed for this After Effects version"
+elif [ -d "$ADC_DST/NGL" ] && [ "$FORCE" = 0 ]; then
+    good "found: $ADC_DST"
+elif [ -n "$ADC_SRC" ]; then
+    mkdir -p "$ADC_DST"
+    if have rsync; then
+        run "copying $(du -sh "$ADC_SRC" 2> /dev/null | cut -f1) to the prefix" rsync -rlt "$ADC_SRC/" "$ADC_DST/"
+    else
+        run "copying $(du -sh "$ADC_SRC" 2> /dev/null | cut -f1) to the prefix" cp -r --no-preserve=mode,ownership "$ADC_SRC/." "$ADC_DST/"
+    fi
+    chmod -R u+rwX,go+rX "$ADC_DST" 2> /dev/null || true
+else
+    note "After Effects $AE_V needs the folder \"$ADC_REL\" of your Windows installation and it was not found next to the After Effects folder"
+    say "         run again with --windows DIR (DIR holds \"Program Files\"), or copy that folder to $ADC_DST"
 fi
 
 step "Plugins and extensions"
