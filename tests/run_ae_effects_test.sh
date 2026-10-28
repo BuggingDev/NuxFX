@@ -184,7 +184,11 @@ function setParam(fx, rx, value) {
     for (var pi = 1; pi <= fx.numProperties; pi++) {
         var p = fx.property(pi);
         if (re.test(String(p.name))) {
-            try { p.setValue(value); return String(p.name); } catch (e) { return ""; }
+            try {
+                // a value beyond the range (Threshold's Level runs 0 to 1 in After Effects 26, 0 to 255 before) becomes 75 % of the range
+                if (typeof value === "number" && p.hasMax && p.hasMin && value > p.maxValue) { value = p.minValue + 0.75 * (p.maxValue - p.minValue); }
+                p.setValue(value); return String(p.name);
+            } catch (e) { return ""; }
         }
     }
     return "";
