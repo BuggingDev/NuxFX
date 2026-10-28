@@ -12,6 +12,8 @@
 #   and the panel stays empty. With this setting AE uses its non-DirectX display.
 #   AEGNUX_DIRECTX_DISPLAY=1 does not set it, and sets it back to false where an earlier start wrote it
 #   (the panel is then empty while CUDA is in use).
+# DSEnableOpenGL = false (Debug Database.txt) and show_issues_at_startup = false (SCRPriorState.json), After Effects 26
+#   and newer only: the reasons are at the lines that set them, below.
 # "Pref_SCRIPTING_FILE_NETWORK_SECURITY" = "1" (Prefs.txt, "Main Pref Section v2"), only with AEGNUX_SCRIPT_FILE_ACCESS=1
 #   "Allow Scripts to Write Files and Access Network". The tests that read their result back from a
 #   startup script (text, effects) need it; it is off by default, as in After Effects.
@@ -83,6 +85,8 @@ set_pref() { aegnux_set_pref "$@"; }
 
 ROAMING=$(aegnux_ae_roaming)
 VERSION=$(aegnux_ae_version)
+AE_MAJOR=${VERSION%%.*}
+case "$AE_MAJOR" in ''|*[!0-9]*) AE_MAJOR=0 ;; esac
 DIRS=$(aegnux_ae_pref_dirs)
 if [ -n "$VERSION" ] && ! printf '%s\n' "$DIRS" | grep -qxF "$ROAMING/$VERSION"; then
     mkdir -p "$ROAMING/$VERSION"
@@ -98,6 +102,34 @@ printf '%s\n' "$DIRS" | while IFS= read -r dir; do
     elif grep -q "^DS\.DisableDirectXDisplay$TAB" "$dir/Debug Database.txt" 2> /dev/null; then
         # an earlier start wrote the flag: switch it off again, otherwise the DirectX display stays disabled
         set_db_pref "$dir/Debug Database.txt" DS.DisableDirectXDisplay false false
+    fi
+    if [ "$AE_MAJOR" -ge 26 ]; then
+        # DSEnableOpenGL = false (After Effects 26)
+        #   With the DirectX display off, After Effects 26 draws the Composition, Layer and Footage panels through its
+        #   OpenGL display surface, and under Wine that surface stays black. Without it the software display is used
+        #   (the viewer says "Display Acceleration Disabled"; rendering with CUDA is not affected).
+        #   AEGNUX_GL_DISPLAY=1 leaves the OpenGL display on.
+        if [ "${AEGNUX_GL_DISPLAY:-0}" != 1 ]; then
+            set_db_pref "$dir/Debug Database.txt" DSEnableOpenGL false true
+        elif grep -q "^DSEnableOpenGL$TAB" "$dir/Debug Database.txt" 2> /dev/null; then
+            set_db_pref "$dir/Debug Database.txt" DSEnableOpenGL true true
+        fi
+        # show_issues_at_startup = false (SCRPriorState.json, After Effects 26)
+        #   The "System Compatibility Report" opens at every start and waits for a click (it names the Windows version,
+        #   which Wine reports as Windows 10). The state file of the report is what the box "Show System Compatibility
+        #   Issues" of the Startup & Repair preferences writes. AEGNUX_SCR_AT_STARTUP=1 leaves it alone.
+        if [ "${AEGNUX_SCR_AT_STARTUP:-0}" != 1 ]; then
+            scr="$dir/SCRPriorState.json"
+            if [ -f "$scr" ]; then
+                if grep -q '"show_issues_at_startup"' "$scr"; then
+                    sed -i 's/"show_issues_at_startup": *true/"show_issues_at_startup":false/' "$scr"
+                else
+                    sed -i 's/^{/{"show_issues_at_startup":false,/' "$scr"
+                fi
+            elif [ "${dir##*/}" = "$VERSION" ]; then
+                printf '{"show_issues_at_startup":false}' > "$scr"
+            fi
+        fi
     fi
     if [ "$NO_DEVICES" = true ] || grep -q "^dvaaudiodevice\.ForceNoDevices$TAB" "$dir/Debug Database.txt" 2> /dev/null; then
         set_db_pref "$dir/Debug Database.txt" dvaaudiodevice.ForceNoDevices "$NO_DEVICES" false
