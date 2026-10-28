@@ -198,9 +198,10 @@ sleep 45
 capture before
 
 # The Draft 3D button of the viewer, as a fraction of the main window (measured on this display).
-# After Effects 26 has another layout: the buttons of the viewer end at 44 % of the window width, not at 63 %.
+# After Effects 26 has another layout: Draft 3D is the lightning bolt at the top left of the Timeline panel (21 % of the window
+# width, 74 % of its height).
 case "$(aegnux_ae_version)" in
-    2[6-9].*|[3-9][0-9].*) DRAFT_X=440; DRAFT_Y=693 ;;
+    2[6-9].*|[3-9][0-9].*) DRAFT_X=207; DRAFT_Y=742 ;;
     *) DRAFT_X=628; DRAFT_Y=692 ;;
 esac
 click_draft() {
