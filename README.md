@@ -60,6 +60,22 @@ Verified on Ubuntu 24.04, Debian 13, Fedora 44, Arch Linux and openSUSE Tumblewe
 staging 11.12, DXVK 3.0.1, vkd3d-proton 3.0.1 and Mesa 25.2.8. What was tested, and how:
 [docs/tests.md](docs/tests.md).
 
+### After Effects 2026 (26.5)
+
+The installer also takes the files of After Effects 2026 (Wine TkG staging 11.17; `./install.sh --help` shows
+`--windows`, the Windows folder that also holds Adobe Desktop Common). Tested on Arch Linux with Wine 11.17, DXVK 3.0.1,
+vkd3d-proton 3.0.1 and Mesa 25.2.8:
+
+| Feature | Status |
+|---|---|
+| Composition panel (software display), CUDA, Advanced 3D (cameras, lights, shadows, 1920x1080), text | Work |
+| 40 common effects, in CUDA and in software mode | Work, except Vibrance (empty frame) and Brightness & Contrast in software mode (empty frame) |
+| RAM preview (also 4K, 120 s), X11 and Wayland (sway, KWin) | Work |
+| Warp Stabilizer VFX | Works |
+| H.264 (MP4 with audio), AVI, AIFF and PNG sequence export | Work |
+| TIFF and Photoshop sequence export | Do not work ([known issues](docs/known-issues.md)) |
+| Roto Brush (Object Matte), Content-Aware Fill | A stroke makes the matte of its frame; the propagation to other frames and "Generate Fill Layer" do not complete |
+
 ## Screenshots
 
 After Effects 2024 under Wine on an X11 desktop (Openbox on a private X server) and in a KDE Plasma
