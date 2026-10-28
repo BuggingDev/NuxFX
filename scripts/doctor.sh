@@ -83,7 +83,7 @@ if [ -x "$WINE_BIN_DIR/wine" ]; then
 else
     fail "no Wine runner at $WINE_BIN_DIR (set WINE_BIN_DIR)"
 fi
-if [ -x "$WINE_BIN_DIR/wine" ]; then
+if [ -x "$WINE_BIN_DIR/wine" ] && case "$(aegnux_ae_version)" in 2[6-9].*|[3-9][0-9].*) true ;; *) false ;; esac; then
     D2D_OUT=$("$AEGNUX_SCRIPTS_DIR/patch_wine_d2d1.sh" --check 2>&1); D2D_RC=$?
     case "$D2D_RC" in
         0) ok "Direct2D: EndDraw for command lists works (patches-wine/)" ;;
@@ -95,7 +95,7 @@ if [ -f "$WINEPREFIX/system.reg" ]; then ok "prefix: $WINEPREFIX"; else fail "no
 if grep -aq '^"RelayExclude"' "$WINEPREFIX/user.reg" 2> /dev/null; then warn "the prefix has a RelayExclude list (wine.inf): relay traces hide the critical-section calls; remove it from HKCU\Software\Wine\Debug to see them"; fi
 if [ -f "$AE_DIR/AfterFX.exe" ]; then
     ok "After Effects: $AE_DIR (version ${AE_VERSION:-$(aegnux_ae_version)}; tested: 24.6, 26.5)"
-    # After Effects 26 and newer start Adobe's NGL program and its browser (CEF) from Adobe Desktop Common
+    # After Effects 26 and newer start some programs and a browser (CEF) from Adobe Desktop Common
     case "$(aegnux_ae_version | cut -d. -f1)" in
         2[6-9]|[3-9][0-9])
             if [ -d "$WINEPREFIX/drive_c/Program Files/Common Files/Adobe/Adobe Desktop Common/NGL" ]; then

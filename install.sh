@@ -53,9 +53,9 @@ done
 . "$HERE/scripts/common.sh"
 
 # Pinned downloads. The hashes are those of the releases everything was tested with.
-WINE_VER=11.17
-WINE_URL="https://github.com/Kron4ek/Wine-Builds/releases/download/$WINE_VER/wine-$WINE_VER-staging-tkg-amd64-wow64.tar.xz"
-WINE_SHA=d5270a1e2737311c84f0820276523764d993fc04322729da768efc84c971e2d7
+# Wine TkG staging: 11.12 for After Effects 24.6; After Effects 26 and newer get 11.17 (set below, once the version is known)
+WINE_VER=11.12
+WINE_SHA=5cf2bcee41ae2c926c8fade6297d5c0c3e9cbe1d1f0a77d69197d739af805e59
 DXVK_URL="https://github.com/doitsujin/dxvk/releases/download/v3.0.1/dxvk-3.0.1.tar.gz"
 DXVK_SHA=bebb6284db590535b7b005c102ebf6850c98842cff0fded9aacb74babae14c49
 VKD3D_URL="https://github.com/HansKristian-Work/vkd3d-proton/releases/download/v3.0.1/vkd3d-proton-3.0.1.tar.zst"
@@ -187,12 +187,17 @@ fi
 [ -f "$AE_SRC/AfterFX.exe" ] || die "AfterFX.exe not found in: $AE_SRC"
 AE_V=$(ae_version_of "$AE_SRC")
 good "After Effects folder: $AE_SRC (version ${AE_V:-unknown})"
-case "$AE_V" in 24.6*) ;; *) note "only 24.6.x was tested; other versions may not start" ;; esac
+case "$AE_V" in 24.6*|26.5*) ;; *) note "only 24.6.x and 26.5.x were tested; other versions may not start" ;; esac
 
-# After Effects 26 and newer start Adobe's NGL program and its browser (CEF) from "Adobe Desktop Common" (a folder of
-# the Windows installation, not of After Effects). It sits under the Windows root of the After Effects folder.
+# After Effects 26 and newer start some programs and a browser (CEF) from "Adobe Desktop Common" (a folder of the Windows
+# installation, not of After Effects). It sits under the Windows root of the After Effects folder.
 AE_MAJOR=${AE_V%%.*}
 case "$AE_MAJOR" in ''|*[!0-9]*) AE_MAJOR=0 ;; esac
+if [ "$AE_MAJOR" -ge 26 ]; then
+    WINE_VER=11.17
+    WINE_SHA=d5270a1e2737311c84f0820276523764d993fc04322729da768efc84c971e2d7
+fi
+WINE_URL="https://github.com/Kron4ek/Wine-Builds/releases/download/$WINE_VER/wine-$WINE_VER-staging-tkg-amd64-wow64.tar.xz"
 ADC_REL="Program Files/Common Files/Adobe/Adobe Desktop Common"
 ADC_DST="$WINEPREFIX/drive_c/$ADC_REL"
 ADC_SRC=""
@@ -481,8 +486,11 @@ else
 fi
 # Wine's Direct2D answers EndDraw() on a command list target with E_NOTIMPL, which After Effects 26 shows as a box
 # "Direct2D Drawbot error" (patches-wine/, scripts/patch_wine_d2d1.sh makes the change in the pinned runner build).
-D2D_OUT=$("$HERE/scripts/patch_wine_d2d1.sh" 2>&1); D2D_RC=$?
-if [ "$D2D_RC" = 0 ]; then good "$D2D_OUT"; else note "$D2D_OUT"; fi
+# After Effects 24 is left as it was tested: its runner is not changed.
+if [ "$AE_MAJOR" -ge 26 ]; then
+    D2D_OUT=$("$HERE/scripts/patch_wine_d2d1.sh" 2>&1); D2D_RC=$?
+    if [ "$D2D_RC" = 0 ]; then good "$D2D_OUT"; else note "$D2D_OUT"; fi
+fi
 # vkd3d-proton's installer and winetricks ask which Wine to use when "wine" and "wine64"
 # resolve to different folders (a distribution's own wine64 is enough to trigger it).
 [ -e "$WINE_BIN_DIR/wine64" ] || ln -s wine "$WINE_BIN_DIR/wine64"

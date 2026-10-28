@@ -213,8 +213,10 @@ aegnux_env() {
     # ".config" file (probing privatePath=".\Resources\mochaui\bin"), which Wine does not read: the plug-in fails to
     # load and After Effects stops at a box "The following plugins have failed to load" behind its splash screen.
     # Putting that folder on the Windows PATH lets the libraries be found.
+    # (After Effects 24 does not need it and is left as it was tested.)
     local mocha_bin="$AE_DIR/Plug-ins/Effects/mochaAE/Resources/mochaui/bin"
-    if [ -d "$mocha_bin" ]; then
+    case "$(aegnux_ae_version)" in 2[6-9].*|[3-9][0-9].*) ;; *) mocha_bin="" ;; esac
+    if [ -n "$mocha_bin" ] && [ -d "$mocha_bin" ]; then
         case ";${WINEPATH:-};" in
             *";Z:${mocha_bin//\//\\};"*) ;;
             *) export WINEPATH="Z:${mocha_bin//\//\\}${WINEPATH:+;$WINEPATH}" ;;
