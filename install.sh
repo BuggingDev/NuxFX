@@ -50,9 +50,9 @@ done
 . "$HERE/scripts/common.sh"
 
 # Pinned downloads. The hashes are those of the releases everything was tested with.
-WINE_VER=11.12
+WINE_VER=11.17
 WINE_URL="https://github.com/Kron4ek/Wine-Builds/releases/download/$WINE_VER/wine-$WINE_VER-staging-tkg-amd64-wow64.tar.xz"
-WINE_SHA=5cf2bcee41ae2c926c8fade6297d5c0c3e9cbe1d1f0a77d69197d739af805e59
+WINE_SHA=d5270a1e2737311c84f0820276523764d993fc04322729da768efc84c971e2d7
 DXVK_URL="https://github.com/doitsujin/dxvk/releases/download/v3.0.1/dxvk-3.0.1.tar.gz"
 DXVK_SHA=bebb6284db590535b7b005c102ebf6850c98842cff0fded9aacb74babae14c49
 VKD3D_URL="https://github.com/HansKristian-Work/vkd3d-proton/releases/download/v3.0.1/vkd3d-proton-3.0.1.tar.zst"
@@ -443,9 +443,18 @@ fi
 if [ "$NEED_BUILD" = 1 ]; then ensure_meson; fi
 
 step "Wine runner"
-if [ -x "$WINE_BIN_DIR/wine" ] && [ "$FORCE" = 0 ]; then
-    good "found: $("$WINE_BIN_DIR/wine" --version 2> /dev/null)"
+RUNNER_V=""
+[ -x "$WINE_BIN_DIR/wine" ] && RUNNER_V=$("$WINE_BIN_DIR/wine" --version 2> /dev/null)
+case "$RUNNER_V" in "wine-$WINE_VER."*|"wine-$WINE_VER "*) RUNNER_OK=1 ;; *) RUNNER_OK=0 ;; esac
+if [ -n "$RUNNER_V" ] && [ "$RUNNER_OK" = 0 ] && [ "$WINE_BIN_DIR" != "$AEGNUX_HOME/runner/bin" ]; then
+    note "the runner in $WINE_BIN_DIR is $RUNNER_V; $WINE_VER is the tested one (kept)"
+elif [ "$RUNNER_OK" = 1 ] && [ "$FORCE" = 0 ]; then
+    good "found: $RUNNER_V"
 else
+    if [ -n "$RUNNER_V" ]; then
+        note "replacing the runner ($RUNNER_V) by $WINE_VER"
+        rm -rf "$AEGNUX_HOME/runner"
+    fi
     fetch "$WINE_URL" "$DL/wine-$WINE_VER.tar.xz" "$WINE_SHA"
     mkdir -p "$AEGNUX_HOME/runner"
     run "unpacking the runner" tar -xJf "$DL/wine-$WINE_VER.tar.xz" -C "$AEGNUX_HOME/runner" --strip-components=1
