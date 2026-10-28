@@ -6,13 +6,18 @@ set -u
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$HERE/common.sh"
 mkdir -p "$AEGNUX_TEST_DIR"
-aegnux_have_vulkan_headers || { echo "FAIL: the Vulkan headers are not installed ($(aegnux_pkg_hint libvulkan-dev))"; exit 1; }
 
-cc -O1 -Wall -o "$AEGNUX_TEST_DIR/dzn_audit" "$HERE/dzn_audit.c" -lvulkan || exit 1
-MESA_SRC="$MESA_SRC" python3 "$HERE/gen_cmds.py" "$AEGNUX_TEST_DIR/audit_cmds.txt" || exit 1
 aegnux_env
-echo "== entrypoint audit"
-"$AEGNUX_TEST_DIR/dzn_audit" "$AEGNUX_TEST_DIR/audit_cmds.txt" 2>&1 | grep -v conformant | tail -n 8
+if [ -f "$MESA_SRC/src/microsoft/vulkan/dzn_device.c" ]; then
+    aegnux_have_vulkan_headers || { echo "FAIL: the Vulkan headers are not installed ($(aegnux_pkg_hint libvulkan-dev))"; exit 1; }
+    cc -O1 -Wall -o "$AEGNUX_TEST_DIR/dzn_audit" "$HERE/dzn_audit.c" -lvulkan || exit 1
+    MESA_SRC="$MESA_SRC" python3 "$HERE/gen_cmds.py" "$AEGNUX_TEST_DIR/audit_cmds.txt" || exit 1
+    echo "== entrypoint audit"
+    "$AEGNUX_TEST_DIR/dzn_audit" "$AEGNUX_TEST_DIR/audit_cmds.txt" 2>&1 | grep -v conformant | tail -n 8
+else
+    # a prebuilt install has no Mesa source tree; the audit reads the entrypoints from it
+    echo "note: no Mesa source tree at $MESA_SRC (a prebuilt install has none), the entrypoint audit is skipped"
+fi
 
 echo "== GPUSniffer"
 cd "$AE_DIR"

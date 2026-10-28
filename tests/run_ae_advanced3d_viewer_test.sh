@@ -198,13 +198,18 @@ sleep 45
 capture before
 
 # The Draft 3D button of the viewer, as a fraction of the main window (measured on this display).
+# After Effects 26 has another layout: the buttons of the viewer end at 44 % of the window width, not at 63 %.
+case "$(aegnux_ae_version)" in
+    2[6-9].*|[3-9][0-9].*) DRAFT_X=440; DRAFT_Y=693 ;;
+    *) DRAFT_X=628; DRAFT_Y=692 ;;
+esac
 click_draft() {
     local wid x y w h
-    wid=$(xdotool search --onlyvisible --name "Adobe After Effects 2024" 2> /dev/null | head -n 1)
+    wid=$(xdotool search --onlyvisible --name "Adobe After Effects 20[0-9][0-9]" 2> /dev/null | head -n 1)
     if [ -z "$wid" ]; then echo "note: the main window was not found"; return 1; fi
     eval "$(xdotool getwindowgeometry --shell "$wid")"
-    x=$((X + WIDTH * 628 / 1000))
-    y=$((Y + HEIGHT * 692 / 1000))
+    x=$((X + WIDTH * DRAFT_X / 1000))
+    y=$((Y + HEIGHT * DRAFT_Y / 1000))
     echo "clicking Draft 3D at $x,$y (main window ${WIDTH}x${HEIGHT}+$X+$Y)"
     xdotool mousemove "$x" "$y" click 1
 }
