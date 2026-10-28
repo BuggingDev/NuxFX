@@ -79,7 +79,7 @@ if [ -f "$AEGNUX_CONFIG" ]; then
     if [ -n "$UNKNOWN" ]; then warn "aegnux.conf keys that are ignored: $UNKNOWN"; else ok "aegnux.conf: all keys are used"; fi
 fi
 if [ -x "$WINE_BIN_DIR/wine" ]; then
-    ok "Wine runner: $("$WINE_BIN_DIR/wine" --version 2>/dev/null) (tested: wine-11.12 TkG)"
+    ok "Wine runner: $("$WINE_BIN_DIR/wine" --version 2>/dev/null) (tested: wine-11.12 TkG with After Effects 24.6, wine-11.17 TkG with 26.5)"
 else
     fail "no Wine runner at $WINE_BIN_DIR (set WINE_BIN_DIR)"
 fi
@@ -94,7 +94,7 @@ fi
 if [ -f "$WINEPREFIX/system.reg" ]; then ok "prefix: $WINEPREFIX"; else fail "no Wine prefix at $WINEPREFIX (set WINEPREFIX)"; fi
 if grep -aq '^"RelayExclude"' "$WINEPREFIX/user.reg" 2> /dev/null; then warn "the prefix has a RelayExclude list (wine.inf): relay traces hide the critical-section calls; remove it from HKCU\Software\Wine\Debug to see them"; fi
 if [ -f "$AE_DIR/AfterFX.exe" ]; then
-    ok "After Effects: $AE_DIR (version ${AE_VERSION:-$(aegnux_ae_version)}; tested: 24.6)"
+    ok "After Effects: $AE_DIR (version ${AE_VERSION:-$(aegnux_ae_version)}; tested: 24.6, 26.5)"
     # After Effects 26 and newer start Adobe's NGL program and its browser (CEF) from Adobe Desktop Common
     case "$(aegnux_ae_version | cut -d. -f1)" in
         2[6-9]|[3-9][0-9])

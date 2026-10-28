@@ -19,6 +19,7 @@ tests/run_ae_ram_preview_heavy_test.sh  # a 4K, 120 s comp fills the RAM cache; 
 tests/run_pulse_resume_test.sh     # the sound server resumes a stream created corked after its output suspended (no Wine, no After Effects)
 tests/run_ae_text_test.sh          # a new text layer gets a font with letters (Myriad Pro, After Effects' default)
 tests/run_ae_effects_test.sh       # 40 common effects render in CUDA and in software mode
+tests/run_ae_features_test.sh      # imports of ten formats, an expression, save and open again, Render Queue to AVI, H.264 + AAC and AIFF
 tests/run_push_descriptor_test.sh  # dzn push descriptors reach a compute shader (patch 20)
 tests/run_push_constants_test.sh   # 16 dispatches of one command buffer each read the push constants set before them (patch 27)
 tests/run_descriptor_features_test.sh  # null buffer descriptors and inline uniform blocks on the Vulkan device
@@ -142,6 +143,10 @@ scripts/gpu_sniffer_test.sh        # dzn entrypoint audit, then After Effects' G
   mode and again in software mode, and compares both with a comp without the effect. It passes
   when every applied effect renders in both modes; the table shows which effects change the
   picture and how far the two modes differ. About 8 minutes.
+- `run_ae_features_test.sh` does what a user does: it imports files made with ffmpeg (H.264 with AAC, HEVC, ProRes, PNG,
+  JPEG, TIFF, PSD, EXR, WAV, MP3), evaluates an expression, saves the project and opens it again, and renders a comp through
+  the Render Queue into Lossless AVI, H.264 MP4 with AAC and AIFF (and, before After Effects 26, a TIFF sequence). The files
+  are read back with ffprobe and ffmpeg: codec, length, frame count, a frame that is not one colour. About 3 minutes.
 - `run_push_descriptor_test.sh` checks that push descriptors reach a compute shader.
   `run_descriptor_features_test.sh` checks which descriptor features the Vulkan device supports:
   null buffer descriptors work, inline uniform blocks do not (dzn advertises them but does not
