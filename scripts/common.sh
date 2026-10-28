@@ -209,6 +209,17 @@ aegnux_env() {
     # Overrides already set in the caller's environment come last, so they take precedence.
     if [ -n "${WINEDLLOVERRIDES:-}" ]; then overrides="$overrides;$WINEDLLOVERRIDES"; fi
     export WINEDLLOVERRIDES="$overrides"
+    # After Effects 2026's mochaAE plug-in (mochashape4ae_adobe.aex) finds its Qt libraries through a side-by-side
+    # ".config" file (probing privatePath=".\Resources\mochaui\bin"), which Wine does not read: the plug-in fails to
+    # load and After Effects stops at a box "The following plugins have failed to load" behind its splash screen.
+    # Putting that folder on the Windows PATH lets the libraries be found.
+    local mocha_bin="$AE_DIR/Plug-ins/Effects/mochaAE/Resources/mochaui/bin"
+    if [ -d "$mocha_bin" ]; then
+        case ";${WINEPATH:-};" in
+            *";Z:${mocha_bin//\//\\};"*) ;;
+            *) export WINEPATH="Z:${mocha_bin//\//\\}${WINEPATH:+;$WINEPATH}" ;;
+        esac
+    fi
     export WINEDEBUG="${WINEDEBUG:-${AEGNUX_WINEDEBUG:-err+module,err+d3d,err+dxgi,err+vulkan,warn+d3d,err+seh}}"
     # With the X11 driver the Wayland socket is hidden from Wine and from the programs it starts:
     # that is the setup the tests ran in, and a Wine that sees both prefers its Wayland driver.
