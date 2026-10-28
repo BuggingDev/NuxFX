@@ -63,10 +63,10 @@ staging 11.12, DXVK 3.0.1, vkd3d-proton 3.0.1 and Mesa 25.2.8. What was tested, 
 ### After Effects 2026 (26.5)
 
 The installer also takes the files of After Effects 2026 (Wine TkG staging 11.17; `./install.sh --help` shows
-`--windows`, the Windows folder that also holds Adobe Desktop Common). It puts the `vcruntime140_1.dll` of Microsoft's
-Visual C++ 14.44 redistributable (a pinned download, checked against its SHA-256) next to AfterFX.exe: with Wine's own copy
-the Photoshop engine of After Effects 26 fails. Tested on Arch Linux with Wine 11.17, DXVK 3.0.1, vkd3d-proton 3.0.1 and
-Mesa 25.2.8:
+`--windows`, the Windows folder that also holds Adobe Desktop Common and the machine learning models of Roto Brush,
+`Common Files/Adobe/After Effects/26.5`, 700 MB). It puts the `vcruntime140_1.dll` of Microsoft's Visual C++ 14.44
+redistributable (a pinned download, checked against its SHA-256) next to AfterFX.exe: with Wine's own copy the Photoshop
+engine of After Effects 26 fails. Tested on Arch Linux with Wine 11.17, DXVK 3.0.1, vkd3d-proton 3.0.1 and Mesa 25.2.8:
 
 | Feature | Status |
 |---|---|
@@ -75,7 +75,7 @@ Mesa 25.2.8:
 | RAM preview (also 4K, 120 s), X11 and Wayland (sway, KWin) | Work |
 | Warp Stabilizer VFX | Works |
 | H.264 (MP4 with audio), AVI, AIFF, PNG, TIFF and Photoshop sequence export | Work |
-| Roto Brush (Object Matte), Content-Aware Fill | A stroke makes the matte of its frame; the propagation to other frames and "Generate Fill Layer" do not complete |
+| Roto Brush (Object Matte), Content-Aware Fill | Work: a stroke makes the matte and propagates it to the other frames, and "Generate Fill Layer" writes its fill frames and fills the hole (needs the machine learning models above and dzn patch 28) |
 
 ## Screenshots
 

@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: NuxFX <nuxfx@users.noreply.github.com>
+Date: Wed, 28 Oct 2026 21:00:00 +0000
+Subject: [PATCH 28/28] dzn: do not make workgroup barriers coherent
+
+A DirectML kernel of the machine learning models of After Effects 26 (Roto
+Brush) has 33 barriers at workgroup scope that make memory available and
+visible (the Vulkan memory model, as vkd3d-proton emits it for
+GroupMemoryBarrierWithGroupSync). nir_lower_memory_model made every group
+shared access around them coherent, and dxil_nir_lower_coherent_loads_and_stores
+turned each of those into an atomic exchange or add: 128 atomics on group
+shared memory in the one kernel. The Direct3D 12 driver of an NVIDIA GPU
+crashes while it compiles that DXIL (a null pointer in the driver's
+CreateComputePipelineState), and with it After Effects.
+
+A barrier whose memory scope is the workgroup or narrower is already satisfied
+by the DXIL group barrier with its group shared and thread group UAV fences.
+The availability and visibility bits of such a barrier are dropped before
+nir_lower_memory_model, so the accesses stay plain loads and stores. Barriers
+of wider scope keep their semantics.
+---
+diff --git a/src/microsoft/spirv_to_dxil/dxil_spirv_nir.c b/src/microsoft/spirv_to_dxil/dxil_spirv_nir.c
+--- a/src/microsoft/spirv_to_dxil/dxil_spirv_nir.c
++++ b/src/microsoft/spirv_to_dxil/dxil_spirv_nir.c
+@@ -576,6 +576,29 @@
+    return true;
+ }
+ 
++/* A barrier at workgroup scope or narrower that makes memory available or visible is already
++ * satisfied by the DXIL group barrier with its group shared and thread group UAV fences. Left as
++ * it is, nir_lower_memory_model turns every access around such a barrier into a coherent one and
++ * dxil_nir_lower_coherent_loads_and_stores turns those into atomics: one atomic per group shared
++ * load or store (128 of them in one DirectML kernel), which the Direct3D 12 driver of an
++ * NVIDIA GPU cannot compile (the driver crashes in CreateComputePipelineState). */
++static bool
++drop_narrow_scope_available_visible(nir_builder *b, nir_intrinsic_instr *intrin,
++                                    void *cb_data)
++{
++   if (intrin->intrinsic != nir_intrinsic_barrier ||
++       nir_intrinsic_memory_scope(intrin) > SCOPE_WORKGROUP)
++      return false;
++
++   const nir_memory_semantics drop = NIR_MEMORY_MAKE_AVAILABLE | NIR_MEMORY_MAKE_VISIBLE;
++   nir_memory_semantics semantics = nir_intrinsic_memory_semantics(intrin);
++   if (!(semantics & drop))
++      return false;
++
++   nir_intrinsic_set_memory_semantics(intrin, semantics & ~drop);
++   return true;
++}
++
+ struct lower_pntc_data {
+    const struct dxil_spirv_runtime_conf *conf;
+    nir_variable *pntc;
+@@ -982,6 +1005,8 @@
+       NIR_PASS_V(nir, nir_zero_initialize_shared_memory,
+                   nir->info.shared_size, 4);
+    }
++   NIR_PASS_V(nir, nir_shader_intrinsics_pass, drop_narrow_scope_available_visible,
++              nir_metadata_all, NULL);
+    NIR_PASS_V(nir, nir_lower_memory_model);
+    NIR_PASS_V(nir, dxil_nir_lower_coherent_loads_and_stores);
+ 

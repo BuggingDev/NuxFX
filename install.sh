@@ -11,7 +11,8 @@
 #                          or --ae-dir)
 #     --ae-dir DIR         After Effects "Support Files" folder (the one with AfterFX.exe)
 #     --windows DIR        folder that holds "Program Files" of your Windows installation (After Effects 26 and
-#                          newer also need its "Adobe Desktop Common"; found by itself next to --ae-dir)
+#                          newer also need its "Adobe Desktop Common" and the machine learning models of Roto Brush;
+#                          found by themselves next to --ae-dir)
 #     --plugins DIR        folder of .aex plugins to import (repeatable)
 #     --extensions DIR     folder of CEP extensions to import (repeatable)
 #     --home DIR           install folder (default ~/.local/share/aegnux)
@@ -205,10 +206,17 @@ WINE_URL="https://github.com/Kron4ek/Wine-Builds/releases/download/$WINE_VER/win
 ADC_REL="Program Files/Common Files/Adobe/Adobe Desktop Common"
 ADC_DST="$WINEPREFIX/drive_c/$ADC_REL"
 ADC_SRC=""
+# The machine learning models of After Effects 26 (Roto Brush: Object Matte) are in a folder of the same installation,
+# "Common Files/Adobe/After Effects/<major.minor>/<module id>/<module>" (the Object Mask module, 680 MB).
+ML_REL="Program Files/Common Files/Adobe/After Effects"
+ML_VER=$(printf '%s' "$AE_V" | cut -d. -f1,2)
+ML_DST="$WINEPREFIX/drive_c/$ML_REL/$ML_VER"
+ML_SRC=""
 if [ "$AE_MAJOR" -ge 26 ]; then
     WIN_ROOT=$OPT_WIN
     case "$AE_SRC" in */"Program Files/Adobe/"*) [ -n "$WIN_ROOT" ] || WIN_ROOT=${AE_SRC%/Program Files/Adobe/*} ;; esac
     if [ -n "$WIN_ROOT" ] && [ -d "$WIN_ROOT/$ADC_REL/NGL" ]; then ADC_SRC="$WIN_ROOT/$ADC_REL"; fi
+    if [ -n "$WIN_ROOT" ] && compgen -G "$WIN_ROOT/$ML_REL/$ML_VER/*/*/module" > /dev/null; then ML_SRC="$WIN_ROOT/$ML_REL/$ML_VER"; fi
 fi
 
 head1 "2. Plugins and extensions (optional)"
@@ -269,6 +277,7 @@ say "  Install folder    $AEGNUX_HOME"
 say "  After Effects     $AE_SRC"
 if [ "$AE_MAJOR" -ge 26 ]; then
     say "  Desktop Common    ${ADC_SRC:-not found (pass --windows DIR)}"
+    say "  Roto Brush models ${ML_SRC:-not found (pass --windows DIR)}"
 fi
 say "  System packages   $([ "$PACKAGES" = 1 ] && echo yes || echo skipped)"
 say "  Memory mappings   $([ "$RAISE_MAPS" = 1 ] && echo "vm.max_map_count $MAPS, raised to 1048576 (sudo, /etc/sysctl.d/99-nuxfx.conf)" || echo "vm.max_map_count $MAPS, left alone")"
@@ -294,7 +303,7 @@ ask_yn "Start the installation?" y || { say "cancelled"; exit 1; }
 mkdir -p "$AEGNUX_HOME/downloads" "$AEGNUX_LOG_DIR"
 LOG="$AEGNUX_LOG_DIR/install_$(date +%Y%m%d_%H%M%S).log"
 say "  log: $LOG"
-STEP=0; TOTAL=14
+STEP=0; TOTAL=15
 step() { STEP=$((STEP + 1)); head1 "[$STEP/$TOTAL] $*"; }
 # run DESCRIPTION CMD...: output goes to the log; on failure the tail is shown
 run() {
@@ -681,6 +690,26 @@ elif [ -n "$ADC_SRC" ]; then
 else
     note "After Effects $AE_V needs the folder \"$ADC_REL\" of your Windows installation and it was not found next to the After Effects folder"
     say "         run again with --windows DIR (DIR holds \"Program Files\"), or copy that folder to $ADC_DST"
+fi
+
+step "Machine learning models"
+# Object Matte (Roto Brush) of After Effects 26 loads its models from this folder; without it the propagation of a stroke to
+# the other frames waits for ever ("initializing Adobe Sensei propagation module").
+if [ "$AE_MAJOR" -lt 26 ]; then
+    good "not needed for this After Effects version"
+elif compgen -G "$ML_DST/*/*/module" > /dev/null && [ "$FORCE" = 0 ]; then
+    good "found: $ML_DST"
+elif [ -n "$ML_SRC" ]; then
+    mkdir -p "$ML_DST"
+    if have rsync; then
+        run "copying $(du -sh "$ML_SRC" 2> /dev/null | cut -f1) to the prefix" rsync -rlt "$ML_SRC/" "$ML_DST/"
+    else
+        run "copying $(du -sh "$ML_SRC" 2> /dev/null | cut -f1) to the prefix" cp -r --no-preserve=mode,ownership "$ML_SRC/." "$ML_DST/"
+    fi
+    chmod -R u+rwX,go+rX "$ML_DST" 2> /dev/null || true
+else
+    note "Roto Brush (Object Matte) needs the folder \"$ML_REL/$ML_VER\" of your Windows installation and it was not found next to the After Effects folder"
+    say "         run again with --windows DIR (DIR holds \"Program Files\"), or copy that folder to $ML_DST"
 fi
 
 step "C++ exception handling"

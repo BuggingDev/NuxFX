@@ -103,6 +103,11 @@ if [ -f "$AE_DIR/AfterFX.exe" ]; then
             else
                 warn "Adobe Desktop Common is not in the prefix (After Effects 26 and newer need it; ./install.sh --windows DIR copies it)"
             fi
+            if compgen -G "$WINEPREFIX/drive_c/Program Files/Common Files/Adobe/After Effects/$(aegnux_ae_version | cut -d. -f1,2)/*/*/module" > /dev/null; then
+                ok "machine learning models of Roto Brush are in the prefix"
+            else
+                warn "the machine learning models of After Effects (Program Files/Common Files/Adobe/After Effects/<version>) are not in the prefix: Roto Brush waits for ever; ./install.sh --windows DIR copies them"
+            fi
             if [ "$(sha256sum "$AE_DIR/vcruntime140_1.dll" 2> /dev/null | cut -c1-64)" = "$AEGNUX_VCRUNTIME140_1_SHA" ]; then
                 ok "C++ exception handling: Microsoft's vcruntime140_1.dll is next to AfterFX.exe"
             else
@@ -140,6 +145,9 @@ if [ "$MODE" = dzn ]; then
                 # a tree that was patched by build_dzn.sh lists its patches
                 if [ -s "$MESA_SRC/.aegnux-patches-applied" ] && ! grep -q '0027-dzn-give-every-push-constant' "$MESA_SRC/.aegnux-patches-applied"; then
                     warn "dzn was built without patch 27 (the push constants of all dispatches of a command list share one slot): Roto Brush propagation and Content-Aware Fill hang the GPU; run ./install.sh to update it (or rebuild with scripts/build_dzn.sh in a fresh Mesa tree)"
+                fi
+                if [ -s "$MESA_SRC/.aegnux-patches-applied" ] && ! grep -q '0028-dzn-' "$MESA_SRC/.aegnux-patches-applied"; then
+                    warn "dzn was built without patch 28 (workgroup barriers make every group shared access an atomic): After Effects 26 closes when Roto Brush starts on an NVIDIA GPU; run ./install.sh to update it (or rebuild with scripts/build_dzn.sh in a fresh Mesa tree)"
                 fi
             fi
             # Patch 21 names its memfd "dzn-timeline-semaphore"; the string is in the library.

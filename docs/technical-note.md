@@ -347,3 +347,38 @@ engine. The engine had made an image whose layer list was empty and then asked f
    the SHA-256 are pinned), takes `vcruntime140_1.dll` out of its cabinet with `cabextract` (checks that file's SHA-256 too) and
    puts it next to `AfterFX.exe`. Only for After Effects 26 and newer; `scripts/doctor.sh` checks for it.
    Result: `tests/run_ae_features_test.sh` renders its TIFF sequence again (26 steps pass on 26.5).
+
+## 15. After Effects 26: Roto Brush propagation and Content-Aware Fill (October 2026)
+
+Symptom (26.5): after a Roto Brush stroke (Quick Selection tool, Object Matte effect) the matte of the stroke's frame was
+right, but the panels did not follow the playhead, later frames did not render and the banner "Object Matte initializing
+Adobe Sensei propagation module..." stayed. "Generate Fill Layer" of Content-Aware Fill seemed to start nothing.
+
+1. Where the models are. A debugger break on `GetModelEvaluatorRef` of `dvamlprocessing.dll` showed what was asked for:
+   "PPYOLO-20250505" at the stroke and "FastMask3ImgEncoder512-20241118" when a frame had to be propagated. A syscall
+   trace showed After Effects looking for `C:\Program Files\Common Files\Adobe\After Effects\26.5\<module id>\ObjectMask\module\ONNX\v11`
+   and `v17`, which were not in the prefix. The models of After Effects 26 (`fastmask3_*`, `domolite_ppyoloe`, `deeplasso`,
+   `urm_ultimate`, `entity_seg`, 680 MB as `.mlem` files) are not in `Support Files\MLModels` but in that folder of the
+   Windows installation. Without it the render thread waited for ever on a condition variable of `AeCompute.dll` (the
+   futures of the model loader never resolved). `install.sh` copies the folder (step "Machine learning models").
+2. A crash behind it. With the models in place After Effects closed half a minute after the start:
+   `err:vulkan:vkCreateComputePipelines Exception 0xc0000005 in Unix call`. The fault is in `libnvwgf2umx.so`, the NVIDIA
+   Direct3D 12 driver of the host, inside the pipeline creation that `dzn_compute_pipeline_create` asks for. A dump of the
+   shaders vkd3d-proton compiles (`VKD3D_SHADER_DUMP_PATH`) held the last one: a DirectML kernel of 16 x 8 threads with 33
+   `OpControlBarrier` of workgroup scope and memory semantics 24840 (AcquireRelease | WorkgroupMemory | MakeAvailable |
+   MakeVisible: the Vulkan memory model). A small native program that creates a compute pipeline from that SPIR-V reproduced
+   the crash (exit 139). Without the barriers, or with the semantics changed to 264 (no MakeAvailable, no MakeVisible),
+   the pipeline is created.
+3. What dzn made of it. `nir_lower_memory_model` makes every access around such a barrier coherent, and
+   `dxil_nir_lower_coherent_loads_and_stores` turns the coherent group shared ones into atomics: 128 `deref_atomic` (exchange
+   and add) in this kernel, for loads and stores that a group barrier already orders. Patch 28 clears MakeAvailable and
+   MakeVisible on barriers of workgroup scope or narrower before that pass (DXIL's group barrier with its fences covers
+   them); wider scopes keep theirs. `tests/run_workgroup_barrier_test.sh` runs a shader with such a barrier: 2 atomics
+   before the patch, 0 after, the values right both times.
+4. Result on 26.5 (the patch built into dzn, the models in the prefix): a stroke propagates (the centre of the matte of
+   frames 0, 1, 2, 3, 4 and 5 of a clip whose disc moves to the right: x = 170, 173, 177, 187, 203, 220 px), and Content-Aware
+   Fill writes its 15 fill frames (a `Fills` folder next to the project) and fills the hole of a Subtract mask with the band
+   around it. The Progress panel shows two model initializations that never end (known-issues.md); neither feature waits for them.
+5. A trap for test scripts: in the private test display only the first popup menu that was opened showed anything; after
+   it the panels did not react to clicks either, so "Generate Fill Layer" looked dead for a long time. Opening the panel with
+   `app.executeCommand(app.findMenuCommandId("Content-Aware Fill"))` instead of the Window menu made the click work.

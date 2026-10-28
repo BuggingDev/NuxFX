@@ -1,0 +1,20 @@
+#version 450
+#extension GL_KHR_memory_scope_semantics : require
+#pragma use_vulkan_memory_model
+
+// Group shared memory and a workgroup barrier that makes memory available and visible (the Vulkan memory model, as
+// vkd3d-proton emits GroupMemoryBarrierWithGroupSync for DirectML). Every thread writes its slot, the barrier
+// follows, every thread reads the slot of its neighbour: out[i] = first + (i + 1) % 64.
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer Out { uint values[]; };
+shared uint tile[64];
+
+void main()
+{
+   uint i = gl_LocalInvocationID.x;
+   uint base = gl_WorkGroupID.x * 64u;
+   tile[i] = base + i;
+   controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup, gl_StorageSemanticsShared,
+                  gl_SemanticsAcquireRelease | gl_SemanticsMakeAvailable | gl_SemanticsMakeVisible);
+   values[base + i] = tile[(i + 1u) % 64u];
+}

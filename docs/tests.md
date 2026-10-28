@@ -151,6 +151,11 @@ scripts/gpu_sniffer_test.sh        # dzn entrypoint audit, then After Effects' G
   `run_descriptor_features_test.sh` checks which descriptor features the Vulkan device supports:
   null buffer descriptors work, inline uniform blocks do not (dzn advertises them but does not
   implement them; DXVK and vkd3d-proton never allocate one).
+- `run_workgroup_barrier_test.sh` (no Wine, no After Effects) runs a compute shader whose group shared memory is
+  read behind a workgroup barrier that makes memory available and visible (the Vulkan memory model, as vkd3d-proton emits
+  it for DirectML) and counts the atomics in the NIR that dzn prints (`DZN_DEBUG=nir`). Before patch 28 dzn made one
+  atomic of every group shared access around such a barrier (2 in the test shader, 128 in a Roto Brush kernel), and the
+  Direct3D 12 driver of an NVIDIA GPU crashed while compiling that. Skips when the device has no Vulkan memory model.
 - `run_push_constants_test.sh` (no Wine, no After Effects) records 16 dispatches in one command buffer, each
   after its own `vkCmdPushConstants`, and checks that each writes its own value. Before patch 27 dzn gave
   every dispatch the values of the last one (1 of 16 correct).
