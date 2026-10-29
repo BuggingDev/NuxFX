@@ -148,7 +148,7 @@ The patched Mesa 25.2.8 comes as two prebuilt packages, release assets of this p
 or newer and the libraries that `scripts/doctor.sh` checks (it prints the install command).
 
 ```sh
-git clone https://github.com/chunsal/NuxFX.git
+git clone https://github.com/BuggingDev/NuxFX.git
 cd NuxFX
 scripts/fetch_prebuilt.sh dzn
 scripts/fetch_prebuilt.sh gl

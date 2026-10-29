@@ -73,7 +73,7 @@ write_notes() { # DIR COMPONENT DESCRIPTION
         echo
         echo "Mesa:          $MESA_VERSION (https://archive.mesa3d.org/mesa-$MESA_VERSION.tar.xz, sha256 $MESA_TARBALL_SHA256), MIT license (LICENSE-Mesa.rst, licenses/)"
         echo "Also linked:   DirectX-Headers (Microsoft, MIT license: LICENSE-DirectX-Headers)"
-        echo "Patch series:  $SERIES ($NPATCH patches, the files of patches/ in https://github.com/chunsal/NuxFX)"
+        echo "Patch series:  $SERIES ($NPATCH patches, the files of patches/ in https://github.com/BuggingDev/NuxFX)"
         echo "Built:         $(date -u +%Y-%m-%d) on $BUILD_OS, glibc $GLIBC, $GCC"
         echo "Built with:    scripts/build_dzn.sh and scripts/build_gl.sh of that repository (the Meson options are in them)"
         echo "Used by:       scripts/fetch_prebuilt.sh (the installer); the checksums are in prebuilt/manifest.txt"
@@ -114,7 +114,7 @@ mkdir -p "$(dirname "$MANIFEST")"
     echo "# NuxFX prebuilt Mesa packages, written by scripts/package_prebuilt.sh."
     echo "# <component> <Mesa version> <patch series sha256> <architecture> <asset> <sha256 of the asset> <size in bytes>"
     echo "# scripts/fetch_prebuilt.sh uses a package only when its series hash is the one of patches/ in the checkout."
-    echo "base https://github.com/chunsal/NuxFX/releases/download/$TAG"
+    echo "base https://github.com/BuggingDev/NuxFX/releases/download/$TAG"
     for kv in "dzn:$DZN_ASSET" "gl:$GL_ASSET"; do
         c=${kv%%:*}; a=${kv#*:}
         echo "$c $MESA_VERSION $SERIES $ARCH $a $(sha256sum "$OUT/$a" | cut -d' ' -f1) $(stat -c %s "$OUT/$a")"

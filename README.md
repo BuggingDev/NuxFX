@@ -1,6 +1,6 @@
 # NuxFX: Adobe After Effects on Linux
 
-[![Release](https://img.shields.io/github/v/release/chunsal/NuxFX)](https://github.com/chunsal/NuxFX/releases/latest)
+[![Release](https://img.shields.io/github/v/release/BuggingDev/NuxFX)](https://github.com/BuggingDev/NuxFX/releases/latest)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 ![Linux x86-64](https://img.shields.io/badge/platform-Linux%20x86--64-informational)
 ![After Effects 2024 (24.6.2)](https://img.shields.io/badge/After%20Effects-2024%20(24.6.2)-9999FF)
@@ -22,7 +22,7 @@ Adobe's licensing: bring your own licensed copy of After Effects 2024.
 ## Quick start
 
 ```sh
-git clone https://github.com/chunsal/NuxFX.git
+git clone https://github.com/BuggingDev/NuxFX.git
 cd NuxFX
 ./install.sh            # asks a few questions, then installs everything (a few minutes, nothing is compiled)
 scripts/launch_ae.sh    # or start "After Effects (NuxFX)" from your application menu

@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
   - name: Known issues
-    url: https://github.com/chunsal/NuxFX/blob/main/docs/known-issues.md
+    url: https://github.com/BuggingDev/NuxFX/blob/main/docs/known-issues.md
     about: Check whether the problem is already listed, with its cause and fix.
