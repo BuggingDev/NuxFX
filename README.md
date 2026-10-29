@@ -3,21 +3,23 @@
 [![Release](https://img.shields.io/github/v/release/BuggingDev/NuxFX)](https://github.com/BuggingDev/NuxFX/releases/latest)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 ![Linux x86-64](https://img.shields.io/badge/platform-Linux%20x86--64-informational)
-![After Effects 2024 (24.6.2)](https://img.shields.io/badge/After%20Effects-2024%20(24.6.2)-9999FF)
+![After Effects 2024 (24.6.2) and 2026 (26.5)](https://img.shields.io/badge/After%20Effects-2024%20(24.6.2)%20%2B%202026%20(26.5)-9999FF)
 ![X11 and Wayland](https://img.shields.io/badge/display-X11%20%2B%20Wayland-success)
 
-**NuxFX runs Adobe After Effects 2024 (24.6.2) on Linux**, on X11 and Wayland. It sets up Wine,
-DXVK, vkd3d-proton and a CUDA bridge for you. The Composition panel, CUDA acceleration and the
-Advanced 3D renderer work, and Adobe's files stay unmodified. One command installs it on Ubuntu,
-Debian, Fedora, Arch Linux and openSUSE.
+**NuxFX runs Adobe After Effects 2024 (24.6.2) and 2026 (26.5) on Linux**, on X11 and Wayland. It sets up
+Wine, DXVK, vkd3d-proton and a CUDA bridge for you. The Composition panel, CUDA acceleration and the
+Advanced 3D renderer work, in 2026 also Roto Brush and Content-Aware Fill, and Adobe's files stay
+unmodified. One command installs it on Ubuntu, Debian, Fedora, Arch Linux and openSUSE.
 
 NuxFX is based on [AEGNUX](https://github.com/relativemodder/aegnux), which is inspired by
 [AeNux](https://github.com/cutefishaep/AeNux). It contains no Adobe software and does not touch
-Adobe's licensing: bring your own licensed copy of After Effects 2024.
+Adobe's licensing: bring your own licensed copy of After Effects 2024 or 2026.
 
 > **Special thanks:** [@VulpesNoct1s](https://github.com/VulpesNoct1s) (Yakup ÜNAL).
 
-![Adobe After Effects 2024 on Linux: an Advanced 3D composition with extruded text, two point lights and an Environment light with shadows; fastfetch and the Wine version in the terminal](docs/screenshots/after-effects-advanced-3d.png)
+![Adobe After Effects 2026 on Linux: an Advanced 3D composition with extruded text, two point lights and an Environment light with shadows; fastfetch and the Wine version in the terminal](docs/screenshots/after-effects-2026-advanced-3d.png)
+
+*After Effects 2026 (26.5): the Advanced 3D renderer, 1920x1080, with the terminal of the same session.*
 
 ## Quick start
 
@@ -32,8 +34,9 @@ You need:
 
 - x86-64 Linux with `sudo`, about 10 GB of free disk space and internet access
 - a current NVIDIA driver (CUDA and Advanced 3D need an NVIDIA GPU)
-- the `Support Files` folder of your own After Effects 2024 installation (on Windows:
-  `C:\Program Files\Adobe\Adobe After Effects 2024\Support Files`)
+- the `Support Files` folder of your own After Effects 2024 or 2026 installation (on Windows:
+  `C:\Program Files\Adobe\Adobe After Effects 2024\Support Files`; for 2026 also the Windows folder
+  with `--windows`, see [After Effects 2026](#after-effects-2026-265))
 
 The installer shows its plan and asks once. Downloads are checked by SHA-256, and finished parts are
 skipped when you run it again. Options: `./install.sh --help`. Update: `git pull`, then
@@ -75,12 +78,29 @@ engine of After Effects 26 fails. Tested on Arch Linux with Wine 11.17, DXVK 3.0
 | RAM preview (also 4K, 120 s), X11 and Wayland (sway, KWin) | Work |
 | Warp Stabilizer VFX | Works |
 | H.264 (MP4 with audio), AVI, AIFF, PNG, TIFF and Photoshop sequence export | Work |
+| Photoshop-engine effects (Vibrance, Brightness & Contrast in software mode) | Work (the `vcruntime140_1.dll` above) |
 | Roto Brush (Object Matte), Content-Aware Fill | Work: a stroke makes the matte and propagates it to the other frames, and "Generate Fill Layer" writes its fill frames and fills the hole (needs the machine learning models above and dzn patch 28) |
+
+![After Effects 2026 on Linux: Roto Brush with the Object Matte effect, the matte of the first frame in the Composition panel and the stroke on the Layer panel](docs/screenshots/after-effects-2026-roto-brush-stroke.png)
+
+*Roto Brush (Object Matte): one stroke on the disc of a test clip makes the matte of the first frame.*
+
+![After Effects 2026 on Linux: the matte after the propagation to the other frames](docs/screenshots/after-effects-2026-roto-brush-propagated.png)
+
+*The propagation follows the disc over the next frames (the centre of the matte moves from x = 170 to x = 220 px in 6 frames).*
+
+![Content-Aware Fill in After Effects 2026: the frame of the clip with the disc, and the same frame with the fill layer that After Effects wrote](docs/screenshots/after-effects-2026-content-aware-fill.png)
+
+*Content-Aware Fill: the frame with the disc (left) and the same frame with the fill layer that "Generate Fill Layer" wrote (right).*
 
 ## Screenshots
 
-After Effects 2024 under Wine on an X11 desktop (Openbox on a private X server) and in a KDE Plasma
-Wayland session. The Advanced 3D screenshot is at the top.
+After Effects 2026 (26.5) is at the top of this page and in the section above. After Effects 2024 under
+Wine on an X11 desktop (Openbox on a private X server) and in a KDE Plasma Wayland session:
+
+![Adobe After Effects 2024 on Linux: an Advanced 3D composition with extruded text, two point lights and an Environment light with shadows; fastfetch and the Wine version in the terminal](docs/screenshots/after-effects-advanced-3d.png)
+
+*After Effects 2024 (24.6.2): the Advanced 3D renderer.*
 
 ![After Effects 2024 on Linux: a 1080p title composition with shape layers, text and a Glow effect](docs/screenshots/after-effects-title.png)
 
@@ -95,9 +115,9 @@ noise and a blur. Konsole shows `echo $XDG_SESSION_TYPE` (wayland) and fastfetch
 
 ### Does Adobe After Effects run on Linux?
 
-Yes, with NuxFX. It runs After Effects 2024 (24.6.2) through Wine. The Composition panel, CUDA
-acceleration, the Advanced 3D renderer, RAM preview and 40 tested effects work. The Cinema 4D
-renderer does not.
+Yes, with NuxFX. It runs After Effects 2024 (24.6.2) and 2026 (26.5) through Wine. The Composition
+panel, CUDA acceleration, the Advanced 3D renderer, RAM preview and 40 tested effects work, and in
+2026 Roto Brush and Content-Aware Fill. The Cinema 4D renderer does not.
 
 ### How do I install After Effects on Linux?
 
@@ -105,12 +125,12 @@ Clone this repository and run `./install.sh` (see [Quick start](#quick-start)). 
 packages, Wine, DXVK, vkd3d-proton, the CUDA bridge and your After Effects files, and ends with
 `scripts/doctor.sh`. Nothing is compiled: the patched Mesa (Vulkan and OpenGL driver) is downloaded as
 a prebuilt package from this project's releases, checked by SHA-256, and built from source only when no
-package fits your system. You provide the files of your own licensed After Effects 2024.
+package fits your system. You provide the files of your own licensed After Effects 2024 or 2026.
 
 ### Does NuxFX include After Effects or a license?
 
 No. NuxFX contains no Adobe software and does not change Adobe's licensing or activation. You need
-your own licensed copy of After Effects 2024. NuxFX itself is free software (GPL-3.0-or-later).
+your own licensed copy of After Effects 2024 or 2026. NuxFX itself is free software (GPL-3.0-or-later).
 
 ### Does it work on Wayland?
 
@@ -141,7 +161,7 @@ yet. Reports are welcome; attach the output of `scripts/doctor.sh`.
 
 ### Which After Effects versions work?
 
-NuxFX targets After Effects 2024 (24.6.2). Other versions were not tested.
+NuxFX targets After Effects 2024 (24.6.2) and 2026 (26.5). Other versions were not tested.
 
 ### How is NuxFX related to AEGNUX?
 
