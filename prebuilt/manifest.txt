@@ -1,6 +1,6 @@
 # NuxFX prebuilt Mesa packages, written by scripts/package_prebuilt.sh.
 # <component> <Mesa version> <patch series sha256> <architecture> <asset> <sha256 of the asset> <size in bytes>
 # scripts/fetch_prebuilt.sh uses a package only when its series hash is the one of patches/ in the checkout.
-base https://github.com/BuggingDev/NuxFX/releases/download/mesa-25.2.8-s4fc6e968
-dzn 25.2.8 4fc6e9682830228f51bd36ad73e6ee45fd72138438dd1e71e222c5df087760a5 x86_64 nuxfx-mesa-dzn-25.2.8-s4fc6e9682830-x86_64.tar.zst 2d30ce56b7d2f9a70f58567ad47b6a726a9041925ec90c7c4646155a8bcd1019 1887685
-gl 25.2.8 4fc6e9682830228f51bd36ad73e6ee45fd72138438dd1e71e222c5df087760a5 x86_64 nuxfx-mesa-gl-25.2.8-s4fc6e9682830-x86_64.tar.zst b333ce5baf3d3c0174cf5e42b37b74452c66a06e3121d4a4a94fe78166927854 4735154
+base https://github.com/BuggingDev/NuxFX/releases/download/mesa-25.2.8-sc92933ff
+dzn 25.2.8 c92933ff732af9892255398dd6ac0b6cbfdb43fe36fda7d93d2e7548b5a8614b x86_64 nuxfx-mesa-dzn-25.2.8-sc92933ff732a-x86_64.tar.zst 31567cc2de0e440140fdac8dcda0f1743c3090df99321a31199abdeb9be1da62 1887857
+gl 25.2.8 c92933ff732af9892255398dd6ac0b6cbfdb43fe36fda7d93d2e7548b5a8614b x86_64 nuxfx-mesa-gl-25.2.8-sc92933ff732a-x86_64.tar.zst 3f77277a007cedbb9403a1980d745f2b413486ddf7c48003dfd3dedc85be6b32 4734821
