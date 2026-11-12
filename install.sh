@@ -61,16 +61,16 @@ WINE_SHA=5cf2bcee41ae2c926c8fade6297d5c0c3e9cbe1d1f0a77d69197d739af805e59
 # vcruntime140_1.dll of it (AEGNUX_VCRUNTIME140_1_SHA in scripts/common.sh), see the step "C++ exception handling".
 VCR_URL="https://download.visualstudio.microsoft.com/download/pr/990c720a-46ce-4dc7-87b9-c2eb615d34b9/CC0FF0EB1DC3F5188AE6300FAEF32BF5BEEBA4BDD6E8E445A9184072096B713B/VC_redist.x64.exe"
 VCR_SHA=cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b
-DXVK_URL="https://github.com/doitsujin/dxvk/releases/download/v3.0.1/dxvk-3.0.1.tar.gz"
-DXVK_SHA=bebb6284db590535b7b005c102ebf6850c98842cff0fded9aacb74babae14c49
-VKD3D_URL="https://github.com/HansKristian-Work/vkd3d-proton/releases/download/v3.0.1/vkd3d-proton-3.0.1.tar.zst"
-VKD3D_SHA=3cf2315522af5e43605ef6d3c41dad91387040bf97199934f3f7ab76caaa2f0c
-NVLIBS_URL="https://github.com/SveSop/nvidia-libs/releases/download/v1.0.2/nvidia-libs-v1.0.2.tar.xz"
-NVLIBS_SHA=01e8bb6368d088e22d8e8f1d02497214e8db436476021725ef0c0707b7cb1738
+DXVK_URL="https://github.com/doitsujin/dxvk/releases/download/v3.1.1/dxvk-3.1.1.tar.gz"
+DXVK_SHA=40565b4a724aadc4433fa4e010b4b23916d9b1f1baeee64e17186db94f54e608
+VKD3D_URL="https://github.com/HansKristian-Work/vkd3d-proton/releases/download/v3.1/vkd3d-proton-3.1.tar.zst"
+VKD3D_SHA=b85ea8219b71093a3924913dd7aae6172333dc0c069983ed510816d67f02120b
+NVLIBS_URL="https://github.com/SveSop/nvidia-libs/releases/download/v1.0.5/nvidia-libs-v1.0.5.tar.xz"
+NVLIBS_SHA=17d4fdfc59bdad4e8425fbd75df1f2828b8e7d6f1ef6434881be47447f78f8de
 # winetricks is a single shell script. The distributions' packages differ (Debian keeps it in
 # contrib, which is not enabled by default), so the pinned upstream script is used.
-WT_URL="https://raw.githubusercontent.com/Winetricks/winetricks/20250102/src/winetricks"
-WT_SHA=53194dead910f8a5eb1deacaa4773d4e48f5873633d18ab1ecd6fdb0cb92243b
+WT_URL="https://raw.githubusercontent.com/Winetricks/winetricks/20260125/src/winetricks"
+WT_SHA=431f82fc74000e6c864409f1d8fb495d696c03928808e3e8acffc45179312a7b
 MESA_URL="https://archive.mesa3d.org/mesa-25.2.8.tar.xz"
 MESA_SHA=097842f3e49d996868b38688db87b006f7d4541e93ce86d2f341d8b3e7be7c93
 
@@ -291,8 +291,8 @@ else
 fi
 say "  dzn (Mesa)        $MESA_PLAN"
 say "  OpenGL (Mesa)     $([ "$DZN" = 1 ] && echo "$MESA_PLAN (EGL and the d3d12 driver, Mesa 25.2.8)" || echo skipped)"
-say "  DXVK / vkd3d      3.0.1 / 3.0.1"
-say "  CUDA bridge       $([ "$CUDA" = 1 ] && echo "nvidia-libs 1.0.2" || echo skipped)"
+say "  DXVK / vkd3d      3.1.1 / 3.1"
+say "  CUDA bridge       $([ "$CUDA" = 1 ] && echo "nvidia-libs 1.0.5" || echo skipped)"
 say "  Plugins           ${#PLUGIN_DIRS[@]} folder(s)"
 say "  Extensions        ${#EXT_DIRS[@]} folder(s)"
 [ "$DRY" = 1 ] && { say; say "dry run: nothing changed"; exit 0; }
@@ -610,9 +610,9 @@ if grep -qx vcrun2022 "$WINEPREFIX/winetricks.log" 2> /dev/null \
    && grep -qx d3dcompiler_47 "$WINEPREFIX/winetricks.log" 2> /dev/null && [ "$FORCE" = 0 ]; then
     good "found"
 else
-    fetch "$WT_URL" "$DL/winetricks-20250102" "$WT_SHA"
+    fetch "$WT_URL" "$DL/winetricks-20260125" "$WT_SHA"
     mkdir -p "$AEGNUX_HOME/bin"
-    install -m 755 "$DL/winetricks-20250102" "$AEGNUX_HOME/bin/winetricks"
+    install -m 755 "$DL/winetricks-20260125" "$AEGNUX_HOME/bin/winetricks"
     run "winetricks vcrun2022 d3dcompiler_47 (slow)" "$AEGNUX_HOME/bin/winetricks" -q vcrun2022 d3dcompiler_47
     settle
 fi
@@ -622,18 +622,18 @@ if [ -f "$SYS32/dxgi.dll" ] && ! grep -aq "Wine builtin DLL" "$SYS32/dxgi.dll" \
    && [ -f "$SYS32/d3d12.dll" ] && ! grep -aq "Wine builtin DLL" "$SYS32/d3d12.dll" && [ "$FORCE" = 0 ]; then
     good "found"
 else
-    fetch "$DXVK_URL" "$DL/dxvk-3.0.1.tar.gz" "$DXVK_SHA"
-    fetch "$VKD3D_URL" "$DL/vkd3d-proton-3.0.1.tar.zst" "$VKD3D_SHA"
-    run "unpacking DXVK" tar -xzf "$DL/dxvk-3.0.1.tar.gz" -C "$DL"
+    fetch "$DXVK_URL" "$DL/dxvk-3.1.1.tar.gz" "$DXVK_SHA"
+    fetch "$VKD3D_URL" "$DL/vkd3d-proton-3.1.tar.zst" "$VKD3D_SHA"
+    run "unpacking DXVK" tar -xzf "$DL/dxvk-3.1.1.tar.gz" -C "$DL"
     for dll in d3d9 d3d10core d3d11 dxgi; do
-        cp "$DL/dxvk-3.0.1/x64/$dll.dll" "$SYS32/"
-        cp "$DL/dxvk-3.0.1/x32/$dll.dll" "$SYS64/"
+        cp "$DL/dxvk-3.1.1/x64/$dll.dll" "$SYS32/"
+        cp "$DL/dxvk-3.1.1/x32/$dll.dll" "$SYS64/"
         run "override $dll" wine reg add 'HKCU\Software\Wine\DllOverrides' /v "$dll" /d "native,builtin" /f
     done
-    rm -rf "$DL/vkd3d-proton-3.0.1"
-    run "unpacking vkd3d-proton" tar --zstd -xf "$DL/vkd3d-proton-3.0.1.tar.zst" -C "$DL"
+    rm -rf "$DL/vkd3d-proton-3.1"
+    run "unpacking vkd3d-proton" tar --zstd -xf "$DL/vkd3d-proton-3.1.tar.zst" -C "$DL"
     settle
-    run "installing vkd3d-proton" bash -c "cd '$DL/vkd3d-proton-3.0.1' && ./setup_vkd3d_proton.sh install"
+    run "installing vkd3d-proton" bash -c "cd '$DL/vkd3d-proton-3.1' && ./setup_vkd3d_proton.sh install"
     settle
 fi
 
@@ -642,10 +642,10 @@ if [ "$CUDA" = 1 ]; then
     if [ -f "$SYS32/nvcuda.dll" ] && [ "$FORCE" = 0 ]; then
         good "found"
     else
-        fetch "$NVLIBS_URL" "$DL/nvidia-libs-v1.0.2.tar.xz" "$NVLIBS_SHA"
+        fetch "$NVLIBS_URL" "$DL/nvidia-libs-v1.0.5.tar.xz" "$NVLIBS_SHA"
         mkdir -p "$WINEPREFIX/nvidia-libs"
-        run "unpacking nvidia-libs" tar -xJf "$DL/nvidia-libs-v1.0.2.tar.xz" -C "$WINEPREFIX/nvidia-libs"
-        run "installing nvidia-libs" "$WINEPREFIX/nvidia-libs/nvidia-libs-v1.0.2/setup_nvlibs.sh" install
+        run "unpacking nvidia-libs" tar -xJf "$DL/nvidia-libs-v1.0.5.tar.xz" -C "$WINEPREFIX/nvidia-libs"
+        run "installing nvidia-libs" "$WINEPREFIX/nvidia-libs/nvidia-libs-v1.0.5/setup_nvlibs.sh" install
         settle
     fi
 else

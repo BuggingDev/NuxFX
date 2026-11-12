@@ -17,11 +17,16 @@ warn() { printf '  WARN  %s\n' "$*"; WARNS=$((WARNS + 1)); }
 fail() { printf '  FAIL  %s\n' "$*"; FAILS=$((FAILS + 1)); }
 have() { command -v "$1" > /dev/null 2>&1; }
 
-# sha256 of the DXVK 3.0.1 / vkd3d-proton 3.0.1 DLLs everything was tested with.
+# sha256 of the DXVK / vkd3d-proton DLLs the installer pins: 3.0.1 / 3.0.1 (everything was tested with these)
+# and 3.1.1 / 3.1 (the current pins).
 TESTED_DLLS="dxgi.dll 5270db8eca25a0bc85d5aad623feaae28fa2d655ae138a47fc10c72e4ef5d899
 d3d11.dll 411e198cad14d1c726b6f395cf2b9a477b5df6b8b05de9b26a5ec1b615291be6
 d3d12.dll aed51497c0efa76c9ffc30386ff0957197824cd4734ce64b4e962d3551fba43c
-d3d12core.dll 68b8bc7b32f9b1b1b0526e9e2e769731dd8da9af0f2b40f76012385b9d5721df"
+d3d12core.dll 68b8bc7b32f9b1b1b0526e9e2e769731dd8da9af0f2b40f76012385b9d5721df
+dxgi.dll e3c1178eb7f0dd59f91bcfcc257549e5b9cfdb5e8508719293de7f8704f53160
+d3d11.dll 0a203b6255c893430f0a8461c618962df04e62aa41538d5a875b21868317cf9f
+d3d12.dll 502694a5fd5e06381ef2cdb33359c5948b6a012938902ddc9e9b381841bc0ce7
+d3d12core.dll 0dfd690a39ef8361ca3b64e9fd8e945b27d2c568dac5dc0dce1a45abf65914cc"
 
 echo "Host"
 if [ -r /etc/os-release ]; then ok "distribution: $(. /etc/os-release; echo "${PRETTY_NAME:-unknown}")"; fi
@@ -285,9 +290,9 @@ for dll in dxgi.dll d3d11.dll d3d12.dll d3d12core.dll; do
     if grep -aq "Wine builtin DLL" "$f"; then warn "$dll is Wine's builtin; DXVK / vkd3d-proton expected"; continue; fi
     SUM=$(sha256sum "$f" | cut -c1-64)
     if printf '%s\n' "$TESTED_DLLS" | grep -qx "$dll $SUM"; then
-        ok "$dll: tested build"
+        ok "$dll: pinned build"
     else
-        warn "$dll: untested build (sha256 ${SUM:0:16}...); tested with DXVK 3.0.1 and vkd3d-proton 3.0.1"
+        warn "$dll: untested build (sha256 ${SUM:0:16}...); the installer pins DXVK 3.1.1 and vkd3d-proton 3.1 (tested with 3.0.1 / 3.0.1)"
     fi
 done
 
