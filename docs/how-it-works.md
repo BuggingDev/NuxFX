@@ -4,8 +4,8 @@
 flowchart LR
     AE["After Effects 2024<br/>AfterFX.exe"] --> WINE["Wine<br/>(TkG staging 11.12)"]
     WINE -- "window system" --> DISPLAY["X11 / XWayland"]
-    WINE -- "Direct3D 11" --> DXVK["DXVK 3.0.1"]
-    WINE -- "Direct3D 12" --> VKD3D["vkd3d-proton 3.0.1"]
+    WINE -- "Direct3D 11" --> DXVK["DXVK 3.1.1"]
+    WINE -- "Direct3D 12" --> VKD3D["vkd3d-proton 3.1"]
     WINE -- "OpenGL (Composition panel)" --> GL["Mesa OpenGL (EGL)"]
     WINE -- "CUDA" --> NVCUDA["nvcuda bridge<br/>(nvidia-libs)"]
     DXVK --> VK["Vulkan"]
@@ -19,8 +19,8 @@ flowchart LR
 ```
 
 - **Wine** (TkG staging 11.12, a prebuilt runner by Kron4ek, checked by SHA-256) runs
-  `AfterFX.exe`. The Wine prefix gets DXVK 3.0.1 for Direct3D 11, vkd3d-proton 3.0.1 for
-  Direct3D 12, nvidia-libs 1.0.2 (`nvcuda.dll`) for CUDA, the Visual C++ runtime and Adobe's own
+  `AfterFX.exe`. The Wine prefix gets DXVK 3.1.1 for Direct3D 11, vkd3d-proton 3.1 for
+  Direct3D 12, nvidia-libs 1.0.5 (`nvcuda.dll`) for CUDA, the Visual C++ runtime and Adobe's own
   `d3dcompiler_47.dll`.
 - **Display.** Wine's X11 driver, which is XWayland on a Wayland desktop ([wayland.md](wayland.md)).
 - **GPU route, host drivers.** The system has a native GPU driver. Vulkan, OpenGL and CUDA come

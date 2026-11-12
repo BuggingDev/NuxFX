@@ -208,7 +208,7 @@ cd ~/NuxFX
 . scripts/common.sh && aegnux_env     # runner on PATH, prefix location, After Effects' overrides
 wineboot -i                           # create the prefix
 wine reg add 'HKCU\Software\Wine' /v Version /d win10 /f
-# winetricks: your distribution's package, or the upstream script (the installer uses release 20250102)
+# winetricks: your distribution's package, or the upstream script (the installer uses release 20260125)
 winetricks -q vcrun2022 d3dcompiler_47
 # Advanced 3D needs a native d3dcompiler_47 in the prefix (the override is native only). Release 20250102
 # installs 10.0.17134.12, which works; an old copy (6.3.9600, from an older winetricks) did not. The
@@ -221,20 +221,20 @@ cp "$AE_DIR/CEPHtmlEngine/d3dcompiler_47.dll" "$WINEPREFIX/drive_c/windows/syste
 
 ## 6. DXVK and vkd3d-proton
 
-Direct3D 11 is translated by DXVK 3.0.1, Direct3D 12 by vkd3d-proton 3.0.1. Download the release
+Direct3D 11 is translated by DXVK 3.1.1, Direct3D 12 by vkd3d-proton 3.1. Download the release
 archives:
 
-- DXVK 3.0.1: <https://github.com/doitsujin/dxvk/releases/tag/v3.0.1> (`dxvk-3.0.1.tar.gz`)
-- vkd3d-proton 3.0.1: <https://github.com/HansKristian-Work/vkd3d-proton/releases/tag/v3.0.1>
-  (`vkd3d-proton-3.0.1.tar.zst`)
+- DXVK 3.1.1: <https://github.com/doitsujin/dxvk/releases/tag/v3.1.1> (`dxvk-3.1.1.tar.gz`)
+- vkd3d-proton 3.1: <https://github.com/HansKristian-Work/vkd3d-proton/releases/tag/v3.1>
+  (`vkd3d-proton-3.1.tar.zst`)
 
-DXVK has no install script in its 3.0.1 archive, so copy the DLLs and set the overrides:
+DXVK has no install script in its 3.1.1 archive, so copy the DLLs and set the overrides:
 
 ```sh
 cd ~
-tar -xzf dxvk-3.0.1.tar.gz
-cp dxvk-3.0.1/x64/{d3d9,d3d10core,d3d11,dxgi}.dll "$WINEPREFIX/drive_c/windows/system32/"
-cp dxvk-3.0.1/x32/{d3d9,d3d10core,d3d11,dxgi}.dll "$WINEPREFIX/drive_c/windows/syswow64/"
+tar -xzf dxvk-3.1.1.tar.gz
+cp dxvk-3.1.1/x64/{d3d9,d3d10core,d3d11,dxgi}.dll "$WINEPREFIX/drive_c/windows/system32/"
+cp dxvk-3.1.1/x32/{d3d9,d3d10core,d3d11,dxgi}.dll "$WINEPREFIX/drive_c/windows/syswow64/"
 for dll in d3d9 d3d10core d3d11 dxgi; do
     wine reg add 'HKCU\Software\Wine\DllOverrides' /v "$dll" /d "native,builtin" /f
 done
@@ -244,8 +244,8 @@ vkd3d-proton ships an install script, which copies its DLLs and sets the overrid
 `which`):
 
 ```sh
-tar --zstd -xf vkd3d-proton-3.0.1.tar.zst
-cd vkd3d-proton-3.0.1
+tar --zstd -xf vkd3d-proton-3.1.tar.zst
+cd vkd3d-proton-3.1
 ./setup_vkd3d_proton.sh install
 cd ~
 ```
@@ -254,12 +254,12 @@ cd ~
 
 With an NVIDIA GPU. After Effects reaches CUDA through the `nvcuda.dll` of
 [nvidia-libs](https://github.com/SveSop/nvidia-libs). Download the release
-(`nvidia-libs-v1.0.2.tar.xz`, <https://github.com/SveSop/nvidia-libs/releases/tag/v1.0.2>):
+(`nvidia-libs-v1.0.5.tar.xz`, <https://github.com/SveSop/nvidia-libs/releases/tag/v1.0.5>):
 
 ```sh
 mkdir -p "$WINEPREFIX/nvidia-libs"
-tar -xJf ~/nvidia-libs-v1.0.2.tar.xz -C "$WINEPREFIX/nvidia-libs"
-"$WINEPREFIX/nvidia-libs/nvidia-libs-v1.0.2/setup_nvlibs.sh" install
+tar -xJf ~/nvidia-libs-v1.0.5.tar.xz -C "$WINEPREFIX/nvidia-libs"
+"$WINEPREFIX/nvidia-libs/nvidia-libs-v1.0.5/setup_nvlibs.sh" install
 ```
 
 The installer links the DLLs from that folder into the prefix, so keep the folder.
